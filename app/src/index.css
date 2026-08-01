@@ -1,0 +1,46 @@
+:root {
+  --bg: #eef6f2;
+  --text: #173732;
+  --muted: #4e6e68;
+  --panel-bg: rgba(255, 255, 255, 0.9);
+  --panel-border: #d1e4df;
+  --chip-bg: #eef8f4;
+  --chip-border: #cce3dc;
+  --sans: 'SUIT', 'Pretendard', 'Noto Sans KR', 'Apple SD Gothic Neo',
+    sans-serif;
+  --mono: 'IBM Plex Mono', 'SFMono-Regular', ui-monospace, monospace;
+
+  color: var(--text);
+  font-family: var(--sans);
+  line-height: 1.45;
+  font-weight: 500;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background:
+    radial-gradient(circle at 8% 12%, rgba(142, 203, 180, 0.28), transparent 34%),
+    radial-gradient(circle at 87% 88%, rgba(112, 174, 164, 0.24), transparent 36%),
+    linear-gradient(180deg, #f3faf7 0%, #e5f1ed 100%);
+}
+
+h1,
+h2,
+h3,
+p {
+  margin: 0;
+}
