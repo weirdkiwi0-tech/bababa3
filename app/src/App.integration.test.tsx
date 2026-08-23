@@ -35,6 +35,21 @@ describe('App integration', () => {
     expect(screen.queryByText('작은 습관의 시작')).not.toBeInTheDocument()
   })
 
+  it('uses the selected title instead of upload badges in the feed', async () => {
+    seedTodayEntry('선택한 칭호를 업로드 옆에 표시하는 기록입니다.')
+
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: '내 정보' }))
+    await user.click(screen.getByRole('button', { name: /기록의 시작/ }))
+    await user.click(screen.getByRole('button', { name: '다른 사람 일기' }))
+
+    expect(screen.getByText('기록의 시작')).toBeInTheDocument()
+    expect(screen.queryByText('내 업로드')).not.toBeInTheDocument()
+    expect(screen.queryByText('간단')).not.toBeInTheDocument()
+  })
+
   it('shows validation message when text is too short', async () => {
     const user = userEvent.setup()
     render(<App />)
@@ -107,5 +122,25 @@ describe('App integration', () => {
     expect(screen.getAllByRole('button', { name: /원하는 색상으로 변경/ })).toHaveLength(3)
     expect(screen.getByLabelText('배경 색상')).toBeInTheDocument()
     expect(screen.getByLabelText('HEX 색상')).toHaveValue('1b5e57')
+  })
+
+  it('opens saved image and file attachments from a diary card', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    await openSimpleEntryMode(user)
+    await user.type(screen.getByLabelText('내용'), '이미지와 파일을 함께 저장하는 기록입니다.')
+    await user.upload(screen.getByLabelText('사진/파일/영상 첨부'), [
+      new File(['image'], 'photo.png', { type: 'image/png' }),
+      new File(['text'], 'memo.txt', { type: 'text/plain' }),
+    ])
+    await user.click(screen.getByRole('button', { name: '저장' }))
+    await user.click(screen.getByRole('button', { name: '내 정보' }))
+    await user.click(screen.getByRole('button', { name: /첨부 파일 2개/ }))
+
+    expect(screen.getByRole('heading', { name: '일기 첨부 파일' })).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: 'photo.png' })).toBeInTheDocument()
+    expect(screen.getByText('memo.txt')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '파일 열기' })).toBeInTheDocument()
   })
 })

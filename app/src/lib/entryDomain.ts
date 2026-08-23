@@ -2,6 +2,7 @@ export type Entry = {
   content: string
   createdAt: string
   updatedAt: string
+  attachments?: MediaAttachment[]
   entryMode?: 'simple' | 'quality'
   authorId?: string
   qualitySnapshot?: {
@@ -30,6 +31,14 @@ export type Entry = {
   }
 }
 
+export type MediaAttachment = {
+  id: string
+  name: string
+  type: string
+  size: number
+  kind: 'image' | 'video' | 'file'
+}
+
 export type EntryByDate = Record<string, Entry>
 
 export type DiaryDesign = {
@@ -44,6 +53,7 @@ export type DiaryDesignByDate = Record<string, DiaryDesign>
 export const STORAGE_KEY = 'harucheck.entries.v1'
 export const USER_KEY = 'harucheck.anonymousUserId.v1'
 export const DIARY_DESIGN_KEY = 'harucheck.diaryDesignByDate.v1'
+export const SELECTED_TITLE_KEY = 'harucheck.selectedTitle.v1'
 export const APP_TIME_ZONE = 'Asia/Seoul'
 export const ENTRY_MIN_LENGTH = 10
 export const STREAK_TITLES = [
@@ -206,6 +216,11 @@ export function calculateStreak(entries: EntryByDate): {
     }
 
     const monthKey = getMonthKey(cursorKey)
+    const previousKey = getDateKey(shiftDays(cursor, -1))
+    if (!entrySet.has(previousKey)) {
+      break
+    }
+
     if (!graceUsedByMonth.has(monthKey)) {
       graceUsedByMonth.add(monthKey)
       if (monthKey === getMonthKey(todayKey)) {

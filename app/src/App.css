@@ -71,6 +71,8 @@
   padding: clamp(0.9rem, 2vw, 1.1rem);
   backdrop-filter: blur(2px);
   animation: reveal 600ms ease-out both;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 .write-panel {
@@ -1002,6 +1004,20 @@ button:hover {
   border: 1px solid #eadfca;
   border-radius: 9px;
   background: rgba(255, 255, 255, 0.55);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.title-item.selected {
+  border-color: #b17a1f;
+  background: #fff7df;
+  box-shadow: inset 0 0 0 1px #b17a1f;
+}
+
+.title-item:focus-visible {
+  outline: 3px solid rgba(177, 122, 31, 0.3);
+  outline-offset: 2px;
 }
 
 .title-item > span {
@@ -1022,6 +1038,7 @@ button:hover {
 
 .title-item.locked {
   opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .calendar-panel {
@@ -1033,6 +1050,7 @@ button:hover {
   align-items: center;
   justify-content: space-between;
   gap: 0.8rem;
+  min-width: 0;
 }
 
 .calendar-date-picker {
@@ -1042,6 +1060,7 @@ button:hover {
   color: #2d5e57;
   font-size: 0.82rem;
   font-weight: 700;
+  min-width: 0;
 }
 
 .calendar-date-picker input {
@@ -1055,9 +1074,11 @@ button:hover {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
   gap: 0.5rem;
+  min-width: 0;
 }
 
 .day {
+  min-width: 0;
   aspect-ratio: 1;
   border-radius: 10px;
   background: #f6faf8;
@@ -1155,6 +1176,8 @@ button:hover {
   display: flex;
   align-items: center;
   gap: 0.45rem;
+  min-width: 0;
+  flex-wrap: wrap;
 }
 
 .feed-badge {
@@ -1167,6 +1190,12 @@ button:hover {
   border: 1px solid #b5ddd2;
   border-radius: 999px;
   padding: 0.14rem 0.5rem;
+}
+
+.title-badge {
+  color: #684b1c;
+  background: #fff1c9;
+  border-color: #e4c982;
 }
 
 .mode-badge.simple {
@@ -1200,11 +1229,41 @@ button:hover {
   border: 1px solid #dcecea;
   border-radius: 12px;
   padding: 0.8rem;
+  cursor: pointer;
+  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+.my-entry-card:hover,
+.my-entry-card:focus-visible {
+  border-color: #72b58a;
+  box-shadow: 0 8px 18px rgba(30, 111, 103, 0.12);
+  outline: none;
+  transform: translateY(-1px);
 }
 
 .my-entry-card p {
   margin: 0.42rem 0 0;
   line-height: 1.45;
+}
+
+.attachment-hint {
+  color: #1e6f67;
+  font-weight: 700;
+}
+
+.attachment-preview-trigger {
+  margin-top: 0.65rem;
+  padding: 0.42rem 0.65rem;
+  border: 1px solid #9bc9bd;
+  border-radius: 9px;
+  background: #eef8f4;
+  color: #1e6f67;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.attachment-preview-trigger:hover {
+  background: #dff1ea;
 }
 
 .bottom-nav {
@@ -1268,6 +1327,93 @@ button:hover {
   border-radius: 16px;
   padding: clamp(0.7rem, 1.6vw, 1rem);
   box-shadow: 0 20px 38px rgba(8, 35, 30, 0.28);
+}
+
+.media-viewer-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 91;
+  display: grid;
+  place-items: center;
+  padding: clamp(0.8rem, 2.2vw, 1.4rem);
+  background: rgba(7, 27, 23, 0.55);
+}
+
+.media-viewer-panel {
+  width: min(820px, 100%);
+  max-height: min(88vh, 760px);
+  overflow: auto;
+  padding: clamp(0.9rem, 2vw, 1.3rem);
+  border: 1px solid #cde2dc;
+  border-radius: 16px;
+  background: #f4fbf9;
+  box-shadow: 0 20px 38px rgba(8, 35, 30, 0.28);
+}
+
+.media-viewer-content {
+  margin: 0.8rem 0 0;
+  padding: 0.8rem;
+  border-radius: 10px;
+  background: #ffffff;
+  color: #264e48;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.attachment-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 0.7rem;
+  margin-top: 0.85rem;
+}
+
+.attachment-card {
+  overflow: hidden;
+  border: 1px solid #d2e5df;
+  border-radius: 12px;
+  background: #ffffff;
+}
+
+.attachment-card img,
+.attachment-card video {
+  display: block;
+  width: 100%;
+  max-height: 300px;
+  object-fit: contain;
+  background: #eaf5f1;
+}
+
+.attachment-placeholder {
+  display: grid;
+  min-height: 120px;
+  place-items: center;
+  padding: 0.8rem;
+  background: #eaf5f1;
+  color: #55716c;
+  font-size: 0.84rem;
+}
+
+.attachment-card-meta {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.65rem;
+}
+
+.attachment-card-meta strong {
+  overflow-wrap: anywhere;
+  color: #1d564f;
+  font-size: 0.86rem;
+}
+
+.attachment-card-meta span {
+  color: #6b8580;
+  font-size: 0.78rem;
+}
+
+.attachment-card-meta a {
+  color: #1e6f67;
+  font-size: 0.82rem;
+  font-weight: 800;
 }
 
 .slide-viewer-header {
@@ -1420,6 +1566,21 @@ button:hover {
 }
 
 @media (max-width: 640px) {
+  .calendar-heading {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .calendar-date-picker {
+    width: 100%;
+    justify-content: space-between;
+    flex-wrap: wrap;
+  }
+
+  .calendar-date-picker input {
+    max-width: 100%;
+  }
+
   .entry-mode-actions {
     grid-template-columns: 1fr;
   }

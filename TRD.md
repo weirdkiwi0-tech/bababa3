@@ -141,6 +141,8 @@
 - 최초 진입 시 고유 URL 식별값(urlKey)을 생성하고 사용자 데이터와 매핑해야 한다.
 - 고유 URL 재접속 시 로그인 없이 동일 anonymousUserId 맥락을 복원해야 한다.
 - urlKey는 추측이 어려운 난수 기반 문자열이어야 한다.
+- 잠금 해제된 칭호 중 선택한 값(selectedTitle)을 anonymousUserId 기준으로 저장·복원해야 한다.
+- 내 업로드 표시에는 selectedTitle을 사용하고 기존 업로드·작성 유형 배지는 표시하지 않아야 한다.
 
 ### 5.7 Community 공개 접근 (Phase 2)
 - 공개된 Entry는 공유 URL로 조회 가능해야 한다.

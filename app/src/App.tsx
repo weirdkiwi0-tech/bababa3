@@ -21,12 +21,15 @@ import {
   loadEntries,
   saveDiaryDesigns,
   saveEntries,
+  SELECTED_TITLE_KEY,
   toISO,
   validateEntryContent,
   type DiaryDesign,
   type DiaryDesignByDate,
   type EntryByDate,
+  type MediaAttachment,
 } from './lib/entryDomain'
+import { deleteMediaFiles, loadMediaFiles, saveMediaFiles } from './lib/mediaStore'
 
 type ActiveView = 'my-diary' | 'public-feed' | 'my-info'
 type MyDiaryView = 'studio' | 'gallery'
@@ -34,6 +37,7 @@ type CanvasRatio = 'classic' | 'wide' | 'story'
 type TextAlignMode = 'left' | 'center' | 'right'
 type DiaryEntryMode = 'simple' | 'quality'
 type FeedViewFilter = 'all' | DiaryEntryMode
+type SelectedMedia = { id: string; file: File; attachment: MediaAttachment }
 type BlockPoint = { x: number; y: number }
 type TextBlockTarget = 'title' | 'body'
 type SlideBlockSnapshot = { x: number; y: number; scale: number }
@@ -196,6 +200,36 @@ function getStickerEmoji(stickerPresetId: string): string {
   return STICKER_PRESETS.find((preset) => preset.id === stickerPresetId)?.emoji ?? '✨'
 }
 
+function getMediaKind(type: string): MediaAttachment['kind'] {
+  if (type.startsWith('image/')) {
+    return 'image'
+  }
+
+  if (type.startsWith('video/')) {
+    return 'video'
+  }
+
+  return 'file'
+}
+
+function createMediaId(): string {
+  return typeof crypto !== 'undefined' && 'randomUUID' in crypto
+    ? crypto.randomUUID()
+    : `media-${Math.random().toString(36).slice(2, 10)}`
+}
+
+function formatFileSize(size: number): string {
+  if (size < 1024) {
+    return `${size} B`
+  }
+
+  if (size < 1024 * 1024) {
+    return `${Math.round(size / 1024)} KB`
+  }
+
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`
+}
+
 function App() {
   const [entries, setEntries] = useState<EntryByDate>(() => loadEntries())
   const [designByDate, setDesignByDate] = useState<DiaryDesignByDate>(() =>
@@ -222,9 +256,12 @@ function App() {
   const [textAlignMode, setTextAlignMode] = useState<TextAlignMode>('left')
   const [entryTitle, setEntryTitle] = useState('')
   const [selectedEntryMode, setSelectedEntryMode] = useState<DiaryEntryMode | null>(null)
-  const [selectedMediaNames, setSelectedMediaNames] = useState<string[]>([])
+  const [selectedMedia, setSelectedMedia] = useState<SelectedMedia[]>([])
+  const [mediaUrls, setMediaUrls] = useState<Record<string, string>>({})
+  const [activeEntryDateKey, setActiveEntryDateKey] = useState<string | null>(null)
   const [notice, setNotice] = useState('')
   const [activeView, setActiveView] = useState<ActiveView>('my-diary')
+  const [selectedTitle, setSelectedTitle] = useState(() => localStorage.getItem(SELECTED_TITLE_KEY) ?? '')
   const [isCompactNavOpen, setIsCompactNavOpen] = useState(false)
   const [publicFeedFilter, setPublicFeedFilter] = useState<FeedViewFilter>('all')
   const [publicFeedDateKey, setPublicFeedDateKey] = useState(todayKey)
@@ -247,11 +284,43 @@ function App() {
   const isQualityEditorActive =
     activeView === 'my-diary' && selectedEntryMode === 'quality'
 
+  const todayAttachments =
+    selectedMedia.length > 0
+      ? selectedMedia.map(({ attachment }) => attachment)
+      : entries[todayKey]?.attachments ?? []
+
+  useEffect(() => {
+    const attachments = Object.values(entries).flatMap((entry) => entry.attachments ?? [])
+    const ids = attachments.map((attachment) => attachment.id)
+    let cancelled = false
+    const nextUrls: Record<string, string> = {}
+
+    void loadMediaFiles(ids).then((files) => {
+      if (cancelled) {
+        return
+      }
+
+      Object.entries(files).forEach(([id, file]) => {
+        nextUrls[id] = URL.createObjectURL(file)
+      })
+      setMediaUrls(nextUrls)
+    })
+
+    return () => {
+      cancelled = true
+      Object.values(nextUrls).forEach((url) => URL.revokeObjectURL(url))
+    }
+  }, [entries])
+
   const { currentStreak, bestStreak, monthlyGraceUsed } = useMemo(
     () => calculateStreak(entries),
     [entries],
   )
   const currentTitle = getStreakTitle(currentStreak)
+  const unlockedTitles = STREAK_TITLES.filter((streakTitle) => currentStreak >= streakTitle.days)
+  const displayedTitle = unlockedTitles.some((streakTitle) => streakTitle.title === selectedTitle)
+    ? selectedTitle
+    : currentTitle.title
 
   const totalEntries = Object.keys(entries).length
   const recent7 = useMemo(() => getRecentPeriodCount(entries, 7), [entries])
@@ -259,6 +328,7 @@ function App() {
 
   const monthDays = useMemo(() => getCurrentMonthDays(), [])
   const selectedEntry = entries[selectedDateKey]
+  const activeEntry = activeEntryDateKey ? entries[activeEntryDateKey] : undefined
   const myEntries = useMemo(
     () =>
       Object.entries(entries)
@@ -299,12 +369,14 @@ function App() {
         dateKey,
         author: '나',
         content: entry.content,
+        attachments: entry.attachments ?? [],
         entryMode: entry.entryMode ?? 'simple',
         isMine: true,
+        displayedTitle,
       }))
 
     return myPublicEntries
-  }, [designByDate, entries])
+  }, [designByDate, displayedTitle, entries])
   const filteredPublicFeedItems = useMemo(
     () =>
       publicFeedItems.filter(
@@ -763,7 +835,7 @@ function App() {
     }
   }
 
-  function persistTodayEntry(mode: 'draft' | 'publish') {
+  async function persistTodayEntry(mode: 'draft' | 'publish') {
     const contentDraft = selectedEntryMode === 'quality' ? qualityDraft : draft
     const validationError = validateEntryContent(contentDraft)
     if (validationError) {
@@ -774,6 +846,12 @@ function App() {
     const trimmed = contentDraft.trim()
     const trimmedTitle = entryTitle.trim()
     const composedContent = trimmedTitle ? `${trimmedTitle}\n\n${trimmed}` : trimmed
+    const attachments =
+      selectedMedia.length > 0
+        ? selectedMedia.map(({ attachment }) => attachment)
+        : entries[todayKey]?.attachments ?? []
+
+    await saveMediaFiles(selectedMedia.map(({ id, file }) => ({ id, file })))
 
     const now = toISO(new Date())
     const next: EntryByDate = {
@@ -782,6 +860,7 @@ function App() {
         content: composedContent,
         createdAt: entries[todayKey]?.createdAt ?? now,
         updatedAt: now,
+        attachments,
         entryMode: selectedEntryMode ?? 'simple',
         authorId: anonymousUserId,
         qualitySnapshot:
@@ -862,11 +941,26 @@ function App() {
     const files = event.target.files
 
     if (!files) {
-      setSelectedMediaNames([])
+      setSelectedMedia([])
       return
     }
 
-    setSelectedMediaNames(Array.from(files).map((file) => file.name))
+    setSelectedMedia(
+      Array.from(files).map((file) => {
+        const id = createMediaId()
+        return {
+          id,
+          file,
+          attachment: {
+            id,
+            name: file.name,
+            type: file.type || 'application/octet-stream',
+            size: file.size,
+            kind: getMediaKind(file.type),
+          },
+        }
+      }),
+    )
   }
 
   function deleteTodayEntry() {
@@ -880,7 +974,17 @@ function App() {
 
     setEntries(next)
     saveEntries(next)
+    void deleteMediaFiles(entries[todayKey]?.attachments?.map(({ id }) => id) ?? [])
     setNotice('오늘 기록을 삭제했습니다.')
+  }
+
+  function selectTitle(title: (typeof STREAK_TITLES)[number]): void {
+    if (currentStreak < title.days) {
+      return
+    }
+
+    setSelectedTitle(title.title)
+    localStorage.setItem(SELECTED_TITLE_KEY, title.title)
   }
 
   return (
@@ -959,12 +1063,12 @@ function App() {
                 <input
                   id="media"
                   type="file"
-                  accept="image/*,video/*"
+                  accept="image/*,video/*,.pdf,.txt,.doc,.docx,.xls,.xlsx,.ppt,.pptx"
                   multiple
                   onChange={handleMediaSelection}
                 />
-                {selectedMediaNames.length > 0 ? (
-                  <p className="meta">선택된 파일: {selectedMediaNames.join(', ')}</p>
+                {todayAttachments.length > 0 ? (
+                  <p className="meta">선택된 파일: {todayAttachments.map(({ name }) => name).join(', ')}</p>
                 ) : (
                   <p className="meta">선택된 첨부 파일이 없습니다.</p>
                 )}
@@ -1143,7 +1247,7 @@ function App() {
                           <input
                             id="quality-media"
                             type="file"
-                            accept="image/*,video/*"
+                            accept="image/*,video/*,.pdf,.txt,.doc,.docx,.xls,.xlsx,.ppt,.pptx"
                             multiple
                             onChange={handleMediaSelection}
                           />
@@ -1156,8 +1260,8 @@ function App() {
                     </div>
                   ) : null}
 
-                  {selectedMediaNames.length > 0 ? (
-                    <p className="meta quality-meta">선택된 파일: {selectedMediaNames.join(', ')}</p>
+                  {todayAttachments.length > 0 ? (
+                    <p className="meta quality-meta">선택된 파일: {todayAttachments.map(({ name }) => name).join(', ')}</p>
                   ) : (
                     <p className="meta quality-meta">선택된 미디어 파일이 없습니다.</p>
                   )}
@@ -1459,14 +1563,17 @@ function App() {
               <article key={item.id} className="feed-card">
                 <h3>
                   {item.author}
-                  {item.isMine ? <span className="feed-badge">내 업로드</span> : null}
-                  <span
-                    className={`feed-badge mode-badge ${
-                      item.entryMode === 'quality' ? 'quality' : 'simple'
-                    }`}
-                  >
-                    {item.entryMode === 'quality' ? '퀄리티' : '간단'}
-                  </span>
+                  {item.isMine ? (
+                    <span className="feed-badge title-badge">{item.displayedTitle}</span>
+                  ) : (
+                    <span
+                      className={`feed-badge mode-badge ${
+                        item.entryMode === 'quality' ? 'quality' : 'simple'
+                      }`}
+                    >
+                      {item.entryMode === 'quality' ? '퀄리티' : '간단'}
+                    </span>
+                  )}
                 </h3>
                 {item.entryMode === 'quality' && item.qualityView ? (
                   <>
@@ -1481,6 +1588,15 @@ function App() {
                 ) : (
                   <p>{item.content}</p>
                 )}
+                {item.isMine && item.attachments.length > 0 ? (
+                  <button
+                    type="button"
+                    className="attachment-preview-trigger"
+                    onClick={() => setActiveEntryDateKey(item.dateKey)}
+                  >
+                    첨부 파일 {item.attachments.length}개 보기
+                  </button>
+                ) : null}
               </article>
             ))}
           </div>
@@ -1495,9 +1611,24 @@ function App() {
             ) : (
               <div className="my-entry-list">
                 {myEntries.map(([dateKey, entry]) => (
-                  <article key={dateKey} className="my-entry-card">
+                  <article
+                    key={dateKey}
+                    className="my-entry-card"
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => setActiveEntryDateKey(dateKey)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault()
+                        setActiveEntryDateKey(dateKey)
+                      }
+                    }}
+                  >
                     <h3>{dateKey}</h3>
                     <p>{entry.content}</p>
+                    {entry.attachments?.length ? (
+                      <p className="meta attachment-hint">첨부 파일 {entry.attachments.length}개 · 눌러서 보기</p>
+                    ) : null}
                   </article>
                 ))}
               </div>
@@ -1508,7 +1639,7 @@ function App() {
             <div className="title-panel-heading">
               <div>
                 <p className="eyebrow">현재 칭호</p>
-                <h2>{currentTitle.title}</h2>
+                <h2>{displayedTitle}</h2>
               </div>
               <span className="title-mark" aria-hidden="true">
                 ✦
@@ -1518,11 +1649,16 @@ function App() {
             <div className="title-list" aria-label="칭호 목록">
               {STREAK_TITLES.filter((streakTitle) => currentStreak >= streakTitle.days).map(
                 (streakTitle) => (
-                  <div className="title-item unlocked" key={streakTitle.days}>
+                  <button
+                    type="button"
+                    className={`title-item unlocked ${displayedTitle === streakTitle.title ? 'selected' : ''}`}
+                    onClick={() => selectTitle(streakTitle)}
+                    key={streakTitle.days}
+                  >
                     <span aria-hidden="true">✓</span>
                     <strong>{streakTitle.title}</strong>
                     <small>{streakTitle.days === 0 ? '첫 기록' : `${streakTitle.days}일 연속`}</small>
-                  </div>
+                  </button>
                 ),
               )}
             </div>
@@ -1723,6 +1859,53 @@ function App() {
               </div>
             ) : (
               <p className="meta slide-viewer-readonly">작성자 외에는 관전만 가능합니다.</p>
+            )}
+          </article>
+        </section>
+      ) : null}
+
+      {activeEntryDateKey && activeEntry ? (
+        <section className="media-viewer-overlay" aria-label="일기 첨부 파일 보기">
+          <article className="media-viewer-panel">
+            <div className="slide-viewer-header">
+              <div>
+                <p className="eyebrow">{activeEntryDateKey}</p>
+                <h2>일기 첨부 파일</h2>
+              </div>
+              <button type="button" className="ghost" onClick={() => setActiveEntryDateKey(null)}>
+                닫기
+              </button>
+            </div>
+            <p className="media-viewer-content">{activeEntry.content}</p>
+            {activeEntry.attachments?.length ? (
+              <div className="attachment-grid">
+                {activeEntry.attachments.map((attachment) => {
+                  const url = mediaUrls[attachment.id]
+
+                  return (
+                    <article className="attachment-card" key={attachment.id}>
+                      {url && attachment.kind === 'image' ? (
+                        <img src={url} alt={attachment.name} />
+                      ) : null}
+                      {url && attachment.kind === 'video' ? (
+                        <video src={url} controls preload="metadata" aria-label={attachment.name} />
+                      ) : null}
+                      {!url ? <div className="attachment-placeholder">파일을 불러오는 중...</div> : null}
+                      <div className="attachment-card-meta">
+                        <strong>{attachment.name}</strong>
+                        <span>{formatFileSize(attachment.size)}</span>
+                        {url && attachment.kind === 'file' ? (
+                          <a href={url} download={attachment.name} target="_blank" rel="noreferrer">
+                            파일 열기
+                          </a>
+                        ) : null}
+                      </div>
+                    </article>
+                  )
+                })}
+              </div>
+            ) : (
+              <p className="empty">이 일기에는 첨부 파일이 없습니다.</p>
             )}
           </article>
         </section>

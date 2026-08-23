@@ -66,6 +66,23 @@ describe('entryDomain.calculateStreak', () => {
     expect(result.bestStreak).toBe(0)
     expect(result.monthlyGraceUsed).toBe(false)
   })
+
+  it('does not consume grace after an uninterrupted current streak', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-08-10T03:00:00.000Z'))
+
+    const todayKey = getDateKey(new Date('2026-08-10T03:00:00.000Z'))
+    const yesterdayKey = getDateKey(new Date('2026-08-09T03:00:00.000Z'))
+    const entries: EntryByDate = {
+      [todayKey]: makeEntry('오늘 기록입니다. 충분한 길이로 작성했습니다.'),
+      [yesterdayKey]: makeEntry('어제 기록입니다. 충분한 길이로 작성했습니다.'),
+    }
+
+    const result = calculateStreak(entries)
+
+    expect(result.currentStreak).toBe(2)
+    expect(result.monthlyGraceUsed).toBe(false)
+  })
 })
 
 describe('entryDomain.getStreakTitle', () => {
