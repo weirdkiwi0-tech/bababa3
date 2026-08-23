@@ -36,6 +36,18 @@ jobs:
             --tenant-id "$Env:AZURE_TENANT_ID"
         shell: pwsh
 
+      - name: Install dependencies
+        working-directory: ./app
+        run: npm ci
+
+      - name: Run quality gates
+        working-directory: ./app
+        run: |
+          npm run lint
+          npm run build
+          npm run test:unit
+          npm run test:integration
+          npm run test:e2e
 
       - name: Provision Infrastructure
         run: azd provision --no-prompt
