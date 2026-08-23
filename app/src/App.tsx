@@ -488,7 +488,7 @@ function App() {
       window.removeEventListener('pointermove', onPointerMove)
       window.removeEventListener('pointerup', onPointerUp)
     }
-  }, [])
+  }, [bodyBlockScale, titleBlockScale])
 
   useEffect(() => {
     const compactNavQuery = window.matchMedia('(max-width: 900px)')
