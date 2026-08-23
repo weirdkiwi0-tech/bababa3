@@ -7,6 +7,7 @@ export type Entry = {
   qualitySnapshot?: {
     title: string
     body: string
+      backgroundColor?: string
     templateId: string
     textAlign: 'left' | 'center' | 'right'
     titleBlock: {
@@ -35,6 +36,7 @@ export type DiaryDesign = {
   templateId: string
   paperStyle: string
   coverStyle: string
+  color: string
 }
 
 export type DiaryDesignByDate = Record<string, DiaryDesign>

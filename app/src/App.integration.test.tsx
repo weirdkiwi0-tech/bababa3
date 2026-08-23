@@ -96,4 +96,16 @@ describe('App integration', () => {
     expect(screen.queryByText(simpleContent)).not.toBeInTheDocument()
     expect(screen.getByText('본문')).toBeInTheDocument()
   })
+
+  it('shows three paper templates with a full-range color picker', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: '디자인 작성' }))
+
+    expect(screen.getByText('서식 3개 · 선택 후 색상을 정할 수 있어요.')).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: /원하는 색상으로 변경/ })).toHaveLength(3)
+    expect(screen.getByLabelText('배경 색상')).toBeInTheDocument()
+    expect(screen.getByLabelText('HEX 색상')).toHaveValue('1b5e57')
+  })
 })

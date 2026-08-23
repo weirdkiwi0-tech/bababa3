@@ -477,6 +477,53 @@ label {
   box-shadow: inset 0 0 0 1px #1e6f67;
 }
 
+.design-color-controls {
+  display: grid;
+  gap: 0.45rem;
+  margin-top: 0.8rem;
+  padding: 0.8rem;
+  border: 1px solid #cfe4dc;
+  border-radius: 12px;
+  background: #f5fbf8;
+}
+
+.design-color-controls label {
+  color: #1a5d54;
+  font-size: 0.84rem;
+  font-weight: 800;
+}
+
+.design-color-inputs {
+  display: grid;
+  grid-template-columns: 54px minmax(0, 160px);
+  gap: 0.55rem;
+  align-items: center;
+}
+
+.design-color-inputs input[type='color'] {
+  width: 54px;
+  height: 40px;
+  padding: 0.2rem;
+  border: 1px solid #9bc9bd;
+  border-radius: 10px;
+  background: #ffffff;
+  cursor: pointer;
+}
+
+.design-hex-input {
+  width: 100%;
+  min-height: 40px;
+  box-sizing: border-box;
+  border: 1px solid #b8d7cc;
+  border-radius: 10px;
+  background: #ffffff;
+  color: #214a45;
+  font-family: var(--mono);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
 .preset-thumb {
   width: 100%;
   aspect-ratio: 16 / 10;

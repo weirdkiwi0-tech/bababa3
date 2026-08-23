@@ -52,6 +52,7 @@ type FeedSlideView = {
   titleBlock: SlideBlockSnapshot
   bodyBlock: SlideBlockSnapshot
   stickers: StickerSnapshot[]
+  backgroundColor: string
 }
 
 type TextBlockDragState =
@@ -84,66 +85,49 @@ type StickerPreset = {
   emoji: string
 }
 
-type CoverPreset = {
-  id: string
-  name: string
-  mainColor: string
-  subColor: string
-}
-
 type PaperPreset = {
   paperStyle: string
   pattern: string
+  defaultColor: string
 }
 
 type DiaryDesignPreset = {
   id: string
   name: string
-  coverStyle: string
   paperStyle: string
+  pattern: string
   preview: string
+  defaultColor: string
 }
-
-const COVER_PRESETS: CoverPreset[] = [
-  { id: 'forest', name: '포레스트', mainColor: '#1b5e57', subColor: '#59b58d' },
-  { id: 'sunset', name: '선셋', mainColor: '#a34a2f', subColor: '#f1a260' },
-  { id: 'ocean', name: '오션', mainColor: '#1f4f8a', subColor: '#67a5df' },
-  { id: 'lavender', name: '라벤더', mainColor: '#6a4a8b', subColor: '#b997e6' },
-  { id: 'charcoal', name: '차콜', mainColor: '#2f3a42', subColor: '#7d8f9b' },
-  { id: 'mint', name: '민트', mainColor: '#1f6b62', subColor: '#8dd8c8' },
-]
 
 const PAPER_PRESETS: PaperPreset[] = [
   {
     paperStyle: '줄노트',
     pattern:
       'repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.25) 0px, rgba(255, 255, 255, 0.25) 1px, transparent 1px, transparent 11px)',
+    defaultColor: '#1b5e57',
   },
   {
     paperStyle: '모눈',
     pattern:
       'repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.22) 0px, rgba(255, 255, 255, 0.22) 1px, transparent 1px, transparent 12px), repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.22) 0px, rgba(255, 255, 255, 0.22) 1px, transparent 1px, transparent 12px)',
+    defaultColor: '#1f4f8a',
   },
   {
     paperStyle: '무지',
     pattern: 'linear-gradient(180deg, rgba(255, 255, 255, 0.24), rgba(255, 255, 255, 0.1))',
-  },
-  {
-    paperStyle: '도트',
-    pattern:
-      'radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.33) 1px, transparent 1.8px)',
+    defaultColor: '#a34a2f',
   },
 ]
 
-const DESIGN_PRESETS: DiaryDesignPreset[] = COVER_PRESETS.flatMap((cover) =>
-  PAPER_PRESETS.map((paper) => ({
-    id: `${cover.id}-${paper.paperStyle}`,
-    name: `${cover.name} · ${paper.paperStyle}`,
-    coverStyle: cover.name,
-    paperStyle: paper.paperStyle,
-    preview: `${paper.pattern}, linear-gradient(145deg, ${cover.mainColor}, ${cover.subColor})`,
-  })),
-)
+const DESIGN_PRESETS: DiaryDesignPreset[] = PAPER_PRESETS.map((paper) => ({
+  id: paper.paperStyle,
+  name: paper.paperStyle,
+  paperStyle: paper.paperStyle,
+  pattern: paper.pattern,
+  preview: `${paper.pattern}, linear-gradient(145deg, ${paper.defaultColor}, ${paper.defaultColor})`,
+  defaultColor: paper.defaultColor,
+}))
 
 const STICKER_PRESETS: StickerPreset[] = [
   { id: 'heart', name: '하트', emoji: '💚' },
@@ -171,14 +155,27 @@ const STICKER_BASE_SIZE = 28
 const DEFAULT_DIARY_DESIGN: DiaryDesign = {
   templateId: DESIGN_PRESETS[0].id,
   paperStyle: DESIGN_PRESETS[0].paperStyle,
-  coverStyle: DESIGN_PRESETS[0].coverStyle,
+  coverStyle: '사용자 색상',
+  color: DESIGN_PRESETS[0].defaultColor,
+}
+
+function getDesignPreset(templateId: string): DiaryDesignPreset {
+  return DESIGN_PRESETS.find((preset) => preset.id === templateId) ?? DESIGN_PRESETS[0]
+}
+
+function getDesignPreview(preset: DiaryDesignPreset, color: string): string {
+  return `${preset.pattern}, linear-gradient(145deg, ${color}, ${color})`
 }
 
 function normalizeDiaryDesign(design?: Partial<DiaryDesign>): DiaryDesign {
+  const templateId = design?.templateId ?? DEFAULT_DIARY_DESIGN.templateId
+  const preset = getDesignPreset(templateId)
+
   return {
-    templateId: design?.templateId ?? DEFAULT_DIARY_DESIGN.templateId,
-    paperStyle: design?.paperStyle ?? DEFAULT_DIARY_DESIGN.paperStyle,
+    templateId,
+    paperStyle: design?.paperStyle ?? preset.paperStyle,
     coverStyle: design?.coverStyle ?? DEFAULT_DIARY_DESIGN.coverStyle,
+    color: design?.color ?? preset.defaultColor,
   }
 }
 
@@ -219,6 +216,7 @@ function App() {
   const [draftDesign, setDraftDesign] = useState<DiaryDesign>(
     () => normalizeDiaryDesign(loadDiaryDesigns()[todayKey]),
   )
+  const [colorHex, setColorHex] = useState(() => draftDesign.color.slice(1))
   const [myDiaryView, setMyDiaryView] = useState<MyDiaryView>('studio')
   const [canvasRatio, setCanvasRatio] = useState<CanvasRatio>('classic')
   const [textAlignMode, setTextAlignMode] = useState<TextAlignMode>('left')
@@ -287,6 +285,8 @@ function App() {
               isMine: true,
               title: entry.qualitySnapshot?.title ?? split.title,
               body: entry.qualitySnapshot?.body ?? split.body,
+              backgroundColor:
+                entry.qualitySnapshot?.backgroundColor ?? design.color,
               templateId: entry.qualitySnapshot?.templateId ?? design.templateId,
               textAlign: entry.qualitySnapshot?.textAlign ?? 'left',
               titleBlock: entry.qualitySnapshot?.titleBlock ?? { x: 22, y: 20, scale: 1 },
@@ -317,11 +317,10 @@ function App() {
 
   const completionRate30 = Math.round((recent30 / 30) * 100)
   const activeDesignPreset = useMemo(
-    () =>
-      DESIGN_PRESETS.find((preset) => preset.id === draftDesign.templateId) ??
-      DESIGN_PRESETS[0],
+    () => getDesignPreset(draftDesign.templateId),
     [draftDesign.templateId],
   )
+  const activeDesignPreview = getDesignPreview(activeDesignPreset, draftDesign.color)
 
   function getSelectionLockKey(selection: MovableSelection): string {
     if (selection.type === 'sticker') {
@@ -790,6 +789,7 @@ function App() {
             ? {
                 title: trimmedTitle,
                 body: trimmed,
+              backgroundColor: draftDesign.color,
                 templateId: draftDesign.templateId,
                 textAlign: textAlignMode,
                 titleBlock: {
@@ -823,8 +823,9 @@ function App() {
   function applyDesignPreset(preset: DiaryDesignPreset) {
     const nextDesign: DiaryDesign = {
       templateId: preset.id,
-      coverStyle: preset.coverStyle,
+      coverStyle: '사용자 색상',
       paperStyle: preset.paperStyle,
+      color: preset.defaultColor,
     }
 
     const nextByDate: DiaryDesignByDate = {
@@ -833,9 +834,28 @@ function App() {
     }
 
     setDraftDesign(nextDesign)
+    setColorHex(nextDesign.color.slice(1))
     setDesignByDate(nextByDate)
     saveDiaryDesigns(nextByDate)
     setNotice('템플릿을 적용했습니다.')
+  }
+
+  function updateDesignColor(color: string): void {
+    const normalizedColor = color.toLowerCase()
+    if (!/^#[0-9a-f]{6}$/.test(normalizedColor)) {
+      return
+    }
+
+    const nextDesign = { ...draftDesign, color: normalizedColor }
+    const nextByDate: DiaryDesignByDate = {
+      ...designByDate,
+      [todayKey]: nextDesign,
+    }
+
+    setDraftDesign(nextDesign)
+    setColorHex(normalizedColor.slice(1))
+    setDesignByDate(nextByDate)
+    saveDiaryDesigns(nextByDate)
   }
 
   function handleMediaSelection(event: ChangeEvent<HTMLInputElement>) {
@@ -1151,7 +1171,7 @@ function App() {
                       <div
                         ref={canvasRef}
                         className={`slide-editor-canvas ratio-${canvasRatio}`}
-                        style={{ background: activeDesignPreset.preview }}
+                        style={{ background: activeDesignPreview }}
                       >
                         <div
                           className="slide-editor-overlay"
@@ -1328,7 +1348,7 @@ function App() {
                 ) : (
                   <div className="design-browser quality-gallery" aria-label="디자인 선택">
                     <h3>템플릿 갤러리</h3>
-                    <p className="meta">PPT/캔바 느낌 템플릿 {DESIGN_PRESETS.length}개</p>
+                    <p className="meta">서식 {DESIGN_PRESETS.length}개 · 선택 후 색상을 정할 수 있어요.</p>
                     <div className="preset-grid">
                       {DESIGN_PRESETS.map((preset) => (
                         <button
@@ -1345,9 +1365,36 @@ function App() {
                             aria-hidden="true"
                           />
                           <strong>{preset.name}</strong>
-                          <span>{preset.coverStyle} · {preset.paperStyle}</span>
+                          <span>원하는 색상으로 변경</span>
                         </button>
                       ))}
+                    </div>
+                    <div className="design-color-controls" aria-label="배경 색상 선택">
+                      <label htmlFor="design-color">선택한 서식 색상</label>
+                      <div className="design-color-inputs">
+                        <input
+                          id="design-color"
+                          type="color"
+                          aria-label="배경 색상"
+                          value={draftDesign.color}
+                          onChange={(event) => updateDesignColor(event.target.value)}
+                        />
+                        <input
+                          type="text"
+                          className="design-hex-input"
+                          aria-label="HEX 색상"
+                          value={colorHex}
+                          maxLength={6}
+                          onChange={(event) => {
+                            const nextHex = event.target.value.replace(/[^0-9a-f]/gi, '').slice(0, 6)
+                            setColorHex(nextHex)
+                            if (nextHex.length === 6) {
+                              updateDesignColor(`#${nextHex}`)
+                            }
+                          }}
+                          onBlur={() => setColorHex(draftDesign.color.slice(1))}
+                        />
+                      </div>
                     </div>
                     <div className="actions compact-actions">
                       <button type="button" onClick={() => setMyDiaryView('studio')}>
@@ -1617,8 +1664,10 @@ function App() {
               className="slide-viewer-canvas"
               style={{
                 background:
-                  DESIGN_PRESETS.find((preset) => preset.id === activeFeedSlide.templateId)
-                    ?.preview ?? DESIGN_PRESETS[0].preview,
+                  getDesignPreview(
+                    getDesignPreset(activeFeedSlide.templateId),
+                    activeFeedSlide.backgroundColor,
+                  ),
               }}
             >
               <div className="sticker-layer" aria-label="스티커 미리보기">
