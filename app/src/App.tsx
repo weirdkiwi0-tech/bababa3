@@ -10,7 +10,6 @@ import './App.css'
 import {
   APP_TIME_ZONE,
   ENTRY_MIN_LENGTH,
-  ENTRY_MAX_LENGTH,
   STREAK_TITLES,
   calculateStreak,
   getCurrentMonthDays,
@@ -208,6 +207,15 @@ function App() {
   const anonymousUserId = useMemo(() => getOrCreateAnonymousUserId(), [])
   const todayKey = getDateKey(new Date())
   const [draft, setDraft] = useState(() => entries[todayKey]?.content ?? '')
+  const [qualityDraft, setQualityDraft] = useState(() => {
+    const todayEntry = entries[todayKey]
+
+    if (!todayEntry || todayEntry.entryMode !== 'quality') {
+      return ''
+    }
+
+    return todayEntry.qualitySnapshot?.body ?? splitTitleAndBody(todayEntry.content).body
+  })
   const [draftDesign, setDraftDesign] = useState<DiaryDesign>(
     () => normalizeDiaryDesign(loadDiaryDesigns()[todayKey]),
   )
@@ -757,13 +765,14 @@ function App() {
   }
 
   function persistTodayEntry(mode: 'draft' | 'publish') {
-    const validationError = validateEntryContent(draft)
+    const contentDraft = selectedEntryMode === 'quality' ? qualityDraft : draft
+    const validationError = validateEntryContent(contentDraft)
     if (validationError) {
       setNotice(validationError)
       return
     }
 
-    const trimmed = draft.trim()
+    const trimmed = contentDraft.trim()
     const trimmedTitle = entryTitle.trim()
     const composedContent = trimmedTitle ? `${trimmedTitle}\n\n${trimmed}` : trimmed
 
@@ -923,9 +932,8 @@ function App() {
                   value={draft}
                   onChange={(event) => setDraft(event.target.value)}
                   placeholder="본문"
-                  maxLength={ENTRY_MAX_LENGTH}
                 />
-                <p className="meta">{draft.trim().length}/{ENTRY_MAX_LENGTH}</p>
+                <p className="meta">{draft.trim().length}자</p>
 
                 <label htmlFor="media">사진/파일/영상 첨부</label>
                 <input
@@ -1123,8 +1131,7 @@ function App() {
                       </div>
 
                       <p className="quality-counter">
-                        {draft.trim().length}/{ENTRY_MAX_LENGTH}자 ({ENTRY_MIN_LENGTH}~
-                        {ENTRY_MAX_LENGTH}자)
+                        {qualityDraft.trim().length}자 (최소 {ENTRY_MIN_LENGTH}자)
                       </p>
                     </div>
                   ) : null}
@@ -1283,16 +1290,15 @@ function App() {
                                   id="entry"
                                   className="diary-input slide-editor-textarea"
                                   style={{ textAlign: textAlignMode }}
-                                  value={draft}
-                                  onChange={(event) => setDraft(event.target.value)}
+                                    value={qualityDraft}
+                                    onChange={(event) => setQualityDraft(event.target.value)}
                                   placeholder="본문"
-                                  maxLength={ENTRY_MAX_LENGTH}
                                 />
                               </div>
                             ) : (
                               <>
                                 <div className="text-block-body-zone">
-                                  <p className="slide-body-preview">{draft || '본문'}</p>
+                                  <p className="slide-body-preview">{qualityDraft || '본문'}</p>
                                 </div>
                                 <button
                                   type="button"

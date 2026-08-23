@@ -44,7 +44,7 @@ describe('App integration', () => {
     await user.click(screen.getByRole('button', { name: '저장' }))
 
     expect(
-      screen.getByText('기록은 10자 이상 300자 이하로 입력해주세요.'),
+      screen.getByText('기록은 10자 이상 입력해주세요.'),
     ).toBeInTheDocument()
   })
 
@@ -80,5 +80,20 @@ describe('App integration', () => {
     const todayKey = getDateKey(new Date())
     const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}') as EntryByDate
     expect(stored[todayKey]).toBeUndefined()
+  })
+
+  it('keeps simple entry content out of the design editor', async () => {
+    const user = userEvent.setup()
+    const simpleContent = '간편 작성에서 입력한 본문은 디자인 편집기에 자동으로 들어가면 안 됩니다.'
+    render(<App />)
+
+    await openSimpleEntryMode(user)
+    await user.type(screen.getByLabelText('내용'), simpleContent)
+    await user.click(screen.getByRole('button', { name: '← 뒤로가기' }))
+    await user.click(screen.getByRole('button', { name: '디자인 작성' }))
+    await user.click(screen.getByRole('tab', { name: '제작 스튜디오' }))
+
+    expect(screen.queryByText(simpleContent)).not.toBeInTheDocument()
+    expect(screen.getByText('본문')).toBeInTheDocument()
   })
 })

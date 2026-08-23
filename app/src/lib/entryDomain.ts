@@ -44,7 +44,6 @@ export const USER_KEY = 'harucheck.anonymousUserId.v1'
 export const DIARY_DESIGN_KEY = 'harucheck.diaryDesignByDate.v1'
 export const APP_TIME_ZONE = 'Asia/Seoul'
 export const ENTRY_MIN_LENGTH = 10
-export const ENTRY_MAX_LENGTH = 300
 export const STREAK_TITLES = [
   { days: 0, title: '기록의 시작' },
   { days: 3, title: '작은 습관의 시작' },
@@ -162,8 +161,8 @@ export function getOrCreateAnonymousUserId(): string {
 export function validateEntryContent(content: string): string | null {
   const trimmed = content.trim()
 
-  if (trimmed.length < ENTRY_MIN_LENGTH || trimmed.length > ENTRY_MAX_LENGTH) {
-    return `기록은 ${ENTRY_MIN_LENGTH}자 이상 ${ENTRY_MAX_LENGTH}자 이하로 입력해주세요.`
+  if (trimmed.length < ENTRY_MIN_LENGTH) {
+    return `기록은 ${ENTRY_MIN_LENGTH}자 이상 입력해주세요.`
   }
 
   return null

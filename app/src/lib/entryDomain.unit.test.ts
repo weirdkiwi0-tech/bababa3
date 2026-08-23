@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
   calculateStreak,
-  ENTRY_MAX_LENGTH,
   ENTRY_MIN_LENGTH,
   getDateKey,
   getRecentPeriodCount,
@@ -31,10 +30,10 @@ describe('entryDomain.validateEntryContent', () => {
     expect(result).toBeNull()
   })
 
-  it('returns error for content over max length', () => {
-    const longText = 'a'.repeat(ENTRY_MAX_LENGTH + 1)
-    const result = validateEntryContent(longText)
-    expect(result).toContain(`${ENTRY_MAX_LENGTH}`)
+  it('accepts content longer than 300 characters', () => {
+    const longText = 'a'.repeat(301)
+
+    expect(validateEntryContent(longText)).toBeNull()
   })
 })
 

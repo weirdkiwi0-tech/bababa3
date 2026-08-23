@@ -23,6 +23,6 @@ test.describe('HaruCheck journal flow', () => {
     await page.getByLabel('내용').fill('짧다')
     await page.getByRole('button', { name: '저장' }).click()
 
-    await expect(page.getByText('기록은 10자 이상 300자 이하로 입력해주세요.')).toBeVisible()
+    await expect(page.getByText('기록은 10자 이상 입력해주세요.')).toBeVisible()
   })
 })

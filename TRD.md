@@ -86,7 +86,7 @@
 #### 4.4.1 일일 체크인
 1. 클라이언트는 고유 URL 키(urlKey)와 anonymousUserId를 확인/생성한다.
 2. 오늘 날짜 Entry 존재 여부를 조회한다.
-3. 미니 일기 유효성 검사(10~300)를 수행한다.
+3. 미니 일기 유효성 검사(최소 10자)를 수행한다.
 4. 스티커/서식/폰트/미디어 첨부 메타데이터를 검증한다.
 5. Entry를 저장한다(동일 날짜는 update).
 6. Streak를 갱신한다(유예 정책 포함).
@@ -112,7 +112,7 @@
 - 텍스트 유효성 검사를 서버와 클라이언트 모두에서 수행해야 한다.
 
 ### 5.2 Entry (미니 일기)
-- 길이 제한: minLength=10, maxLength=300
+- 길이 제한: minLength=10, maxLength 없음
 - 허용 문자셋: UTF-8 텍스트
 - 수정/삭제 시 작성자(anonymousUserId) 소유권 검증이 필요하다.
 
@@ -147,7 +147,6 @@
 ## 6. 정책 요구사항
 ### 6.1 정책 설정값
 - entry.minLength = 10
-- entry.maxLength = 300
 - editor.allowedFontStyles = ["basic", "serif", "handwriting"]
 - editor.allowedPageLayouts = ["plain", "lined", "grid"]
 - editor.allowedCoverTemplates = ["basic", "memo", "vintage"]
@@ -196,7 +195,7 @@
 
 제약:
 - unique(anonymousUserId, date)
-- content length 10~300
+- content length >= 10
 
 ### 7.2 Streak
 - anonymousUserId: string (PK)
