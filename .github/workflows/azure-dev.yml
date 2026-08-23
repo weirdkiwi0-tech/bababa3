@@ -40,6 +40,10 @@ jobs:
         working-directory: ./app
         run: npm ci
 
+      - name: Install Playwright browsers
+        working-directory: ./app
+        run: npx playwright install --with-deps chromium
+
       - name: Run quality gates
         working-directory: ./app
         run: |
