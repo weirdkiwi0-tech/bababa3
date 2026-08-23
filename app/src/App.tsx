@@ -1330,7 +1330,7 @@ function App() {
     <main className={`app-shell ${isQualityEditorActive ? 'quality-editor-mode' : ''}`}>
       <header className="hero">
         <div className="hero-title-row">
-          <h1>하루 한장</h1>
+          <h1>원데이</h1>
           {activeView === 'my-diary' && selectedEntryMode === 'simple' ? (
             <button
               type="button"
