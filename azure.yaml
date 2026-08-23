@@ -1,0 +1,19 @@
+name: harucheck
+metadata:
+  template: harucheck@0.0.1
+
+services:
+  web:
+    project: ./app
+    language: js
+    host: containerapp
+    docker:
+      path: ./Dockerfile
+
+hooks:
+  prepackage:
+    shell: sh
+    run: |
+      cd app
+      npm install
+      npm run build

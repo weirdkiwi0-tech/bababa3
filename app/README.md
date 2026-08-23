@@ -30,3 +30,26 @@ If you are developing a production application, we recommend enabling type-aware
 ```
 
 See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+
+## TDD Workflow
+
+This project uses a 3-stage TDD workflow:
+
+1. Unit tests
+2. Integration tests
+3. E2E tests
+
+Run commands:
+
+```bash
+npm run tdd:unit
+npm run tdd:integration
+npm run tdd:e2e
+npm run test:all
+```
+
+Subagent-style stage docs:
+
+- `tdd-agents/unit-subagent.md`
+- `tdd-agents/integration-subagent.md`
+- `tdd-agents/e2e-subagent.md`
