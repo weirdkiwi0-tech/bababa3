@@ -506,7 +506,36 @@ input[type='file'] {
 }
 
 input[type='file'] {
-  padding: 0.45rem;
+  padding: 0.32rem 0.42rem;
+  border-style: dashed;
+  border-color: #9bc9bd;
+  background: #f5fbf8;
+  color: #55716c;
+  cursor: pointer;
+}
+
+input[type='file']::file-selector-button {
+  margin-right: 0.55rem;
+  border: 0;
+  border-radius: 8px;
+  padding: 0.48rem 0.72rem;
+  background: #1e6f67;
+  color: #ffffff;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 800;
+  cursor: pointer;
+  transition: background 160ms ease, transform 160ms ease;
+}
+
+input[type='file']:hover::file-selector-button {
+  background: #15584f;
+  transform: translateY(-1px);
+}
+
+input[type='file']:focus-visible {
+  outline: 3px solid rgba(114, 181, 138, 0.4);
+  outline-offset: 2px;
 }
 
 textarea {
