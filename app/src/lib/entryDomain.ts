@@ -10,16 +10,27 @@ export type Entry = {
     body: string
       backgroundColor?: string
     templateId: string
+      images?: Array<{
+        id: string
+        mediaId: string
+        name: string
+        x: number
+        y: number
+        width: number
+        height: number
+      }>
     textAlign: 'left' | 'center' | 'right'
     titleBlock: {
       x: number
       y: number
       scale: number
+      rotation?: number
     }
     bodyBlock: {
       x: number
       y: number
       scale: number
+      rotation?: number
     }
     stickers?: Array<{
       id: string
@@ -27,6 +38,7 @@ export type Entry = {
       x: number
       y: number
       scale: number
+      rotation?: number
     }>
   }
 }

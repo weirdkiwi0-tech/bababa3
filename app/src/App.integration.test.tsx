@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 import App from './App'
@@ -46,6 +46,7 @@ describe('App integration', () => {
     await user.click(screen.getByRole('button', { name: '다른 사람 일기' }))
 
     expect(screen.getByText('기록의 시작')).toBeInTheDocument()
+    expect(screen.getByText('1일 연속')).toBeInTheDocument()
     expect(screen.queryByText('내 업로드')).not.toBeInTheDocument()
     expect(screen.queryByText('간단')).not.toBeInTheDocument()
   })
@@ -142,5 +143,49 @@ describe('App integration', () => {
     expect(screen.getByRole('img', { name: 'photo.png' })).toBeInTheDocument()
     expect(screen.getByText('memo.txt')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: '파일 열기' })).toBeInTheDocument()
+  })
+
+  it('separates file add and image insert actions in the design editor', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: '디자인 작성' }))
+    await user.click(screen.getByRole('tab', { name: '제작 스튜디오' }))
+    await user.click(screen.getByRole('button', { name: '파일' }))
+
+    expect(screen.getByRole('menuitem', { name: '파일 추가' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: '파일 삽입' })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('menuitem', { name: '파일 삽입' }))
+    await user.upload(
+      screen.getByLabelText('파일 삽입'),
+      new File(['image'], 'inserted.png', { type: 'image/png' }),
+    )
+
+    expect(screen.getByRole('img', { name: 'inserted.png' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'inserted.png 크기 조절' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'inserted.png 삭제' })).toBeInTheDocument()
+  })
+
+  it('rotates the selected design element and can reset its rotation', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: '디자인 작성' }))
+    await user.click(screen.getByRole('tab', { name: '제작 스튜디오' }))
+    await user.click(screen.getByRole('button', { name: '파일' }))
+    await user.click(screen.getByRole('menuitem', { name: '파일 삽입' }))
+    await user.upload(
+      screen.getByLabelText('파일 삽입'),
+      new File(['image'], 'rotated.png', { type: 'image/png' }),
+    )
+
+    const image = screen.getByRole('img', { name: 'rotated.png' })
+    const rotateButton = screen.getByRole('button', { name: '이미지 15도 회전' })
+    fireEvent.pointerDown(rotateButton, { clientX: 10, clientY: 0 })
+    fireEvent.pointerMove(window, { clientX: 0, clientY: 10 })
+    fireEvent.pointerUp(window)
+    expect(image.parentElement?.style.transform).toContain('rotate(90deg)')
+    expect(window.getComputedStyle(image.parentElement as HTMLElement).transformOrigin).toBe('50% 50%')
   })
 })

@@ -40,12 +40,32 @@ type FeedViewFilter = 'all' | DiaryEntryMode
 type SelectedMedia = { id: string; file: File; attachment: MediaAttachment }
 type BlockPoint = { x: number; y: number }
 type TextBlockTarget = 'title' | 'body'
-type SlideBlockSnapshot = { x: number; y: number; scale: number }
-type StickerSnapshot = { id: string; presetId: string; x: number; y: number; scale: number }
+type SlideBlockSnapshot = { x: number; y: number; scale: number; rotation?: number }
+type StickerSnapshot = {
+  id: string
+  presetId: string
+  x: number
+  y: number
+  scale: number
+  rotation?: number
+}
 type MovableSelection =
   | { type: 'title' }
   | { type: 'body' }
+  | { type: 'image'; imageId: string }
   | { type: 'sticker'; stickerId: string }
+type CanvasImageSnapshot = {
+  id: string
+  mediaId: string
+  name: string
+  x: number
+  y: number
+  width: number
+  height: number
+  rotation?: number
+  src?: string
+  file?: File
+}
 type FeedSlideView = {
   author: string
   isMine: boolean
@@ -82,6 +102,25 @@ type StickerDragState =
       startScale: number
     }
   | null
+
+type ImageDragState = {
+  imageId: string
+  action: 'drag' | 'resize'
+  startPointerX: number
+  startPointerY: number
+  startX: number
+  startY: number
+  startWidth: number
+  startHeight: number
+} | null
+
+type RotationDragState = {
+  selection: MovableSelection
+  centerX: number
+  centerY: number
+  startPointerAngle: number
+  startRotation: number
+} | null
 
 type StickerPreset = {
   id: string
@@ -257,6 +296,10 @@ function App() {
   const [entryTitle, setEntryTitle] = useState('')
   const [selectedEntryMode, setSelectedEntryMode] = useState<DiaryEntryMode | null>(null)
   const [selectedMedia, setSelectedMedia] = useState<SelectedMedia[]>([])
+  const [mediaPickerOpen, setMediaPickerOpen] = useState(false)
+  const [placedImages, setPlacedImages] = useState<CanvasImageSnapshot[]>(() =>
+    (entries[todayKey]?.qualitySnapshot?.images ?? []).map((image) => ({ ...image })),
+  )
   const [mediaUrls, setMediaUrls] = useState<Record<string, string>>({})
   const [activeEntryDateKey, setActiveEntryDateKey] = useState<string | null>(null)
   const [notice, setNotice] = useState('')
@@ -268,8 +311,10 @@ function App() {
   const [selectedDateKey, setSelectedDateKey] = useState(todayKey)
   const [titleBlockPosition, setTitleBlockPosition] = useState<BlockPoint>({ x: 22, y: 20 })
   const [titleBlockScale, setTitleBlockScale] = useState(1)
+  const [titleBlockRotation, setTitleBlockRotation] = useState(0)
   const [bodyBlockPosition, setBodyBlockPosition] = useState<BlockPoint>({ x: 22, y: 180 })
   const [bodyBlockScale, setBodyBlockScale] = useState(1)
+  const [bodyBlockRotation, setBodyBlockRotation] = useState(0)
   const [selectedStickerPresetId, setSelectedStickerPresetId] = useState(STICKER_PRESETS[0].id)
   const [placedStickers, setPlacedStickers] = useState<StickerSnapshot[]>([])
   const [selectedMovable, setSelectedMovable] = useState<MovableSelection | null>(null)
@@ -278,6 +323,10 @@ function App() {
   const [activeFeedSlide, setActiveFeedSlide] = useState<FeedSlideView | null>(null)
   const dragStateRef = useRef<TextBlockDragState>(null)
   const stickerDragStateRef = useRef<StickerDragState>(null)
+  const imageDragStateRef = useRef<ImageDragState>(null)
+  const rotationDragStateRef = useRef<RotationDragState>(null)
+  const addMediaInputRef = useRef<HTMLInputElement | null>(null)
+  const insertMediaInputRef = useRef<HTMLInputElement | null>(null)
   const canvasRef = useRef<HTMLDivElement | null>(null)
   const titleBlockRef = useRef<HTMLDivElement | null>(null)
   const bodyBlockRef = useRef<HTMLDivElement | null>(null)
@@ -290,8 +339,10 @@ function App() {
       : entries[todayKey]?.attachments ?? []
 
   useEffect(() => {
-    const attachments = Object.values(entries).flatMap((entry) => entry.attachments ?? [])
-    const ids = attachments.map((attachment) => attachment.id)
+    const ids = Object.values(entries).flatMap((entry) => [
+      ...(entry.attachments ?? []).map((attachment) => attachment.id),
+      ...(entry.qualitySnapshot?.images ?? []).map((image) => image.mediaId),
+    ])
     let cancelled = false
     const nextUrls: Record<string, string> = {}
 
@@ -373,10 +424,11 @@ function App() {
         entryMode: entry.entryMode ?? 'simple',
         isMine: true,
         displayedTitle,
+        streakDays: currentStreak,
       }))
 
     return myPublicEntries
-  }, [designByDate, displayedTitle, entries])
+  }, [currentStreak, designByDate, displayedTitle, entries])
   const filteredPublicFeedItems = useMemo(
     () =>
       publicFeedItems.filter(
@@ -395,6 +447,10 @@ function App() {
   const activeDesignPreview = getDesignPreview(activeDesignPreset, draftDesign.color)
 
   function getSelectionLockKey(selection: MovableSelection): string {
+    if (selection.type === 'image') {
+      return `image:${selection.imageId}`
+    }
+
     if (selection.type === 'sticker') {
       return `sticker:${selection.stickerId}`
     }
@@ -436,6 +492,78 @@ function App() {
     }
 
     toggleLockForSelection(selectedMovable)
+  }
+
+  function getElementRotation(selection: MovableSelection): number {
+    if (selection.type === 'title') {
+      return titleBlockRotation
+    }
+
+    if (selection.type === 'body') {
+      return bodyBlockRotation
+    }
+
+    if (selection.type === 'image') {
+      return placedImages.find((image) => image.id === selection.imageId)?.rotation ?? 0
+    }
+
+    return placedStickers.find((sticker) => sticker.id === selection.stickerId)?.rotation ?? 0
+  }
+
+  function setElementRotation(selection: MovableSelection, rotation: number): void {
+    const normalizedRotation = ((rotation % 360) + 360) % 360
+
+    if (selection.type === 'title') {
+      setTitleBlockRotation(normalizedRotation)
+    } else if (selection.type === 'body') {
+      setBodyBlockRotation(normalizedRotation)
+    } else if (selection.type === 'image') {
+      setPlacedImages((current) =>
+        current.map((image) =>
+          image.id === selection.imageId ? { ...image, rotation: normalizedRotation } : image,
+        ),
+      )
+    } else {
+      setPlacedStickers((current) =>
+        current.map((sticker) =>
+          sticker.id === selection.stickerId
+            ? { ...sticker, rotation: normalizedRotation }
+            : sticker,
+        ),
+      )
+    }
+  }
+
+  function beginElementRotation(
+    selection: MovableSelection,
+    event: ReactPointerEvent<HTMLButtonElement>,
+  ): void {
+    event.stopPropagation()
+    event.preventDefault()
+
+    if (isSelectionLocked(selection)) {
+      return
+    }
+
+    const handle = event.currentTarget
+    const element = handle.parentElement
+    if (!element) {
+      return
+    }
+
+    const bounds = element.getBoundingClientRect()
+    const centerX = bounds.left + bounds.width / 2
+    const centerY = bounds.top + bounds.height / 2
+    const startPointerAngle = Math.atan2(event.clientY - centerY, event.clientX - centerX)
+
+    setSelectedMovable(selection)
+    rotationDragStateRef.current = {
+      selection,
+      centerX,
+      centerY,
+      startPointerAngle,
+      startRotation: getElementRotation(selection),
+    }
   }
 
   function clampValue(value: number, min: number, max: number): number {
@@ -502,6 +630,50 @@ function App() {
       y: clampValue(sticker.y, minOffset, maxY),
     }
   }
+
+  function clampCanvasImage(image: CanvasImageSnapshot): CanvasImageSnapshot {
+    const bounds = getCanvasBounds()
+
+    if (!bounds) {
+      return image
+    }
+
+    const minOffset = 4
+    return {
+      ...image,
+      x: clampValue(image.x, minOffset, Math.max(minOffset, bounds.width - image.width - minOffset)),
+      y: clampValue(image.y, minOffset, Math.max(minOffset, bounds.height - image.height - minOffset)),
+    }
+  }
+
+  useEffect(() => {
+    function onRotationPointerMove(event: PointerEvent) {
+      const dragState = rotationDragStateRef.current
+
+      if (!dragState) {
+        return
+      }
+
+      const pointerAngle = Math.atan2(
+        event.clientY - dragState.centerY,
+        event.clientX - dragState.centerX,
+      )
+      const angleDelta = ((pointerAngle - dragState.startPointerAngle) * 180) / Math.PI
+      setElementRotation(dragState.selection, dragState.startRotation + angleDelta)
+    }
+
+    function onRotationPointerUp() {
+      rotationDragStateRef.current = null
+    }
+
+    window.addEventListener('pointermove', onRotationPointerMove)
+    window.addEventListener('pointerup', onRotationPointerUp)
+
+    return () => {
+      window.removeEventListener('pointermove', onRotationPointerMove)
+      window.removeEventListener('pointerup', onRotationPointerUp)
+    }
+  }, [bodyBlockRotation, placedImages, placedStickers, titleBlockRotation])
 
   useEffect(() => {
     function onPointerMove(event: PointerEvent) {
@@ -590,6 +762,58 @@ function App() {
   }, [])
 
   useEffect(() => {
+    function onImagePointerMove(event: PointerEvent) {
+      const dragState = imageDragStateRef.current
+
+      if (!dragState) {
+        return
+      }
+
+      const deltaX = event.clientX - dragState.startPointerX
+      const deltaY = event.clientY - dragState.startPointerY
+
+      if (dragState.action === 'resize') {
+        const aspectRatio = dragState.startWidth / dragState.startHeight
+        const nextWidth = clampValue(dragState.startWidth + deltaX, 80, 640)
+        const nextHeight = nextWidth / aspectRatio
+
+        setPlacedImages((current) =>
+          current.map((image) =>
+            image.id === dragState.imageId
+              ? clampCanvasImage({ ...image, width: nextWidth, height: nextHeight })
+              : image,
+          ),
+        )
+        return
+      }
+
+      setPlacedImages((current) =>
+        current.map((image) =>
+          image.id === dragState.imageId
+            ? clampCanvasImage({
+                ...image,
+                x: dragState.startX + deltaX,
+                y: dragState.startY + deltaY,
+              })
+            : image,
+        ),
+      )
+    }
+
+    function onImagePointerUp() {
+      imageDragStateRef.current = null
+    }
+
+    window.addEventListener('pointermove', onImagePointerMove)
+    window.addEventListener('pointerup', onImagePointerUp)
+
+    return () => {
+      window.removeEventListener('pointermove', onImagePointerMove)
+      window.removeEventListener('pointerup', onImagePointerUp)
+    }
+  }, [])
+
+  useEffect(() => {
     function onStickerPointerMove(event: PointerEvent) {
       const dragState = stickerDragStateRef.current
 
@@ -660,6 +884,7 @@ function App() {
       setPlacedStickers((current) =>
         current.map((sticker) => clampStickerPlacement(sticker)),
       )
+      setPlacedImages((current) => current.map((image) => clampCanvasImage(image)))
     }
 
     const frameId = window.requestAnimationFrame(normalizeCanvasLayout)
@@ -739,6 +964,79 @@ function App() {
       startY: targetSticker.y,
       startScale: targetSticker.scale,
     }
+  }
+
+  function beginCanvasImageDrag(imageId: string, event: ReactPointerEvent<HTMLDivElement>) {
+    const targetElement = event.target as HTMLElement | null
+    if (
+      targetElement?.closest('.canvas-image-resize') ||
+      targetElement?.closest('.canvas-image-remove') ||
+      targetElement?.closest('.element-lock-toggle') ||
+      targetElement?.closest('.element-rotate-toggle')
+    ) {
+      return
+    }
+
+    event.stopPropagation()
+    event.preventDefault()
+
+    const selection: MovableSelection = { type: 'image', imageId }
+    setSelectedMovable(selection)
+
+    if (isSelectionLocked(selection)) {
+      return
+    }
+
+    const targetImage = placedImages.find((image) => image.id === imageId)
+    if (!targetImage) {
+      return
+    }
+
+    imageDragStateRef.current = {
+      imageId,
+      action: 'drag',
+      startPointerX: event.clientX,
+      startPointerY: event.clientY,
+      startX: targetImage.x,
+      startY: targetImage.y,
+      startWidth: targetImage.width,
+      startHeight: targetImage.height,
+    }
+  }
+
+  function beginCanvasImageResize(imageId: string, event: ReactPointerEvent<HTMLButtonElement>) {
+    event.stopPropagation()
+    event.preventDefault()
+
+    const selection: MovableSelection = { type: 'image', imageId }
+    setSelectedMovable(selection)
+
+    if (isSelectionLocked(selection)) {
+      return
+    }
+
+    const targetImage = placedImages.find((image) => image.id === imageId)
+    if (!targetImage) {
+      return
+    }
+
+    imageDragStateRef.current = {
+      imageId,
+      action: 'resize',
+      startPointerX: event.clientX,
+      startPointerY: event.clientY,
+      startX: targetImage.x,
+      startY: targetImage.y,
+      startWidth: targetImage.width,
+      startHeight: targetImage.height,
+    }
+  }
+
+  function removeCanvasImage(imageId: string) {
+    setPlacedImages((current) => current.filter((image) => image.id !== imageId))
+    setSelectedMovable((current) =>
+      current?.type === 'image' && current.imageId === imageId ? null : current,
+    )
   }
 
   function addStickerToCanvas() {
@@ -851,7 +1149,12 @@ function App() {
         ? selectedMedia.map(({ attachment }) => attachment)
         : entries[todayKey]?.attachments ?? []
 
-    await saveMediaFiles(selectedMedia.map(({ id, file }) => ({ id, file })))
+    await saveMediaFiles([
+      ...selectedMedia.map(({ id, file }) => ({ id, file })),
+      ...placedImages
+        .filter((image): image is CanvasImageSnapshot & { file: File } => Boolean(image.file))
+        .map(({ mediaId, file }) => ({ id: mediaId, file })),
+    ])
 
     const now = toISO(new Date())
     const next: EntryByDate = {
@@ -870,16 +1173,19 @@ function App() {
                 body: trimmed,
               backgroundColor: draftDesign.color,
                 templateId: draftDesign.templateId,
+                images: placedImages.map(({ file: _file, src: _src, ...image }) => image),
                 textAlign: textAlignMode,
                 titleBlock: {
                   x: titleBlockPosition.x,
                   y: titleBlockPosition.y,
                   scale: titleBlockScale,
+                  rotation: titleBlockRotation,
                 },
                 bodyBlock: {
                   x: bodyBlockPosition.x,
                   y: bodyBlockPosition.y,
                   scale: bodyBlockScale,
+                  rotation: bodyBlockRotation,
                 },
                 stickers: placedStickers,
               }
@@ -942,9 +1248,11 @@ function App() {
 
     if (!files) {
       setSelectedMedia([])
+      setMediaPickerOpen(false)
       return
     }
 
+    setMediaPickerOpen(false)
     setSelectedMedia(
       Array.from(files).map((file) => {
         const id = createMediaId()
@@ -961,6 +1269,37 @@ function App() {
         }
       }),
     )
+  }
+
+  function handleCanvasImageSelection(event: ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(event.target.files ?? []).filter((file) =>
+      file.type.startsWith('image/'),
+    )
+
+    setMediaPickerOpen(false)
+    if (files.length === 0) {
+      setNotice('파일 삽입은 이미지 파일만 지원합니다.')
+      return
+    }
+
+    const nextImages = files.map((file, index) => {
+      const mediaId = createMediaId()
+      return {
+        id: createMediaId(),
+        mediaId,
+        name: file.name,
+        x: 24 + (index % 3) * 34,
+        y: 96 + Math.floor(index / 3) * 34,
+        width: 220,
+        height: 146,
+        src: URL.createObjectURL(file),
+        file,
+      }
+    })
+
+    setPlacedImages((current) => [...current, ...nextImages])
+    setSelectedMovable({ type: 'image', imageId: nextImages[0].id })
+    setNotice('이미지를 캔버스에 삽입했습니다. 드래그하거나 모서리에서 크기를 조절해보세요.')
   }
 
   function deleteTodayEntry() {
@@ -1242,16 +1581,53 @@ function App() {
                         >
                           위치/크기 초기화
                         </button>
-                        <label className="quality-media-picker" htmlFor="quality-media">
-                          <span>미디어 첨부</span>
+                        <div className="quality-media-picker">
+                          <button
+                            type="button"
+                            className="ghost"
+                            onClick={() => setMediaPickerOpen((current) => !current)}
+                          >
+                            파일
+                          </button>
+                          {mediaPickerOpen ? (
+                            <div className="media-picker-menu" role="menu" aria-label="파일 작업 선택">
+                              <button
+                                type="button"
+                                role="menuitem"
+                                onClick={() => addMediaInputRef.current?.click()}
+                              >
+                                파일 추가
+                              </button>
+                              <button
+                                type="button"
+                                role="menuitem"
+                                onClick={() => insertMediaInputRef.current?.click()}
+                              >
+                                파일 삽입
+                              </button>
+                            </div>
+                          ) : null}
                           <input
-                            id="quality-media"
+                            ref={addMediaInputRef}
+                            id="quality-media-add"
+                            className="media-file-input-hidden"
+                            aria-label="파일 추가"
                             type="file"
                             accept="image/*,video/*,.pdf,.txt,.doc,.docx,.xls,.xlsx,.ppt,.pptx"
                             multiple
                             onChange={handleMediaSelection}
                           />
-                        </label>
+                          <input
+                            ref={insertMediaInputRef}
+                            id="quality-media-insert"
+                            className="media-file-input-hidden"
+                            aria-label="파일 삽입"
+                            type="file"
+                            accept="image/*"
+                            multiple
+                            onChange={handleCanvasImageSelection}
+                          />
+                        </div>
                       </div>
 
                       <p className="quality-counter">
@@ -1285,6 +1661,70 @@ function App() {
                             }
                           }}
                         >
+                          <div className="canvas-image-layer" aria-label="삽입 이미지 레이어">
+                            {placedImages.map((image) => {
+                              const imageUrl = image.src ?? mediaUrls[image.mediaId]
+                              const selected =
+                                selectedMovable?.type === 'image' &&
+                                selectedMovable.imageId === image.id
+
+                              return (
+                                <div
+                                  key={image.id}
+                                  className={`canvas-image-item ${selected ? 'is-selected' : ''}`}
+                                  style={{
+                                    width: image.width,
+                                    height: image.height,
+                                    transform: `translate(${image.x}px, ${image.y}px) rotate(${image.rotation ?? 0}deg)`,
+                                  }}
+                                  onPointerDown={(event) => beginCanvasImageDrag(image.id, event)}
+                                >
+                                  {imageUrl ? <img src={imageUrl} alt={image.name} draggable={false} /> : null}
+                                  {selected ? (
+                                    <>
+                                      <button
+                                        type="button"
+                                        className="canvas-image-remove"
+                                        aria-label={`${image.name} 삭제`}
+                                        onClick={() => removeCanvasImage(image.id)}
+                                      >
+                                        ×
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="canvas-image-resize"
+                                        aria-label={`${image.name} 크기 조절`}
+                                        onPointerDown={(event) => beginCanvasImageResize(image.id, event)}
+                                      />
+                                      <button
+                                        type="button"
+                                        className="element-lock-toggle"
+                                        onClick={(event) => {
+                                          event.stopPropagation()
+                                          toggleLockForSelection({ type: 'image', imageId: image.id })
+                                        }}
+                                      >
+                                        {isSelectionLocked({ type: 'image', imageId: image.id }) ? '🔒' : '🔓'}
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="element-rotate-toggle"
+                                        title="이미지 15도 회전"
+                                        aria-label="이미지 15도 회전"
+                                        disabled={isSelectionLocked({ type: 'image', imageId: image.id })}
+                                        onPointerDown={(event) =>
+                                          beginElementRotation({ type: 'image', imageId: image.id }, event)
+                                        }
+                                      >
+                                        ↻
+                                      </button>
+                                    </>
+                                  ) : null}
+                                </div>
+                              )
+                            })}
+                          </div>
+
                           <div className="sticker-layer" aria-label="스티커 편집 레이어">
                             {placedStickers.map((sticker) => (
                               <div
@@ -1300,7 +1740,7 @@ function App() {
                                     : ''
                                 }`}
                                 style={{
-                                  transform: `translate(${sticker.x}px, ${sticker.y}px) scale(${sticker.scale})`,
+                                  transform: `translate(${sticker.x}px, ${sticker.y}px) rotate(${sticker.rotation ?? 0}deg) scale(${sticker.scale})`,
                                 }}
                                 onPointerDown={(event) => beginStickerDrag(sticker.id, event)}
                               >
@@ -1339,6 +1779,21 @@ function App() {
                                         ? '🔒'
                                         : '🔓'}
                                     </button>
+                                    <button
+                                      type="button"
+                                      className="element-rotate-toggle"
+                                      title="스티커 15도 회전"
+                                      aria-label="스티커 15도 회전"
+                                      disabled={isSelectionLocked({ type: 'sticker', stickerId: sticker.id })}
+                                      onPointerDown={(event) =>
+                                        beginElementRotation(
+                                          { type: 'sticker', stickerId: sticker.id },
+                                          event,
+                                        )
+                                      }
+                                    >
+                                      ↻
+                                    </button>
                                   </>
                                 ) : null}
                               </div>
@@ -1351,7 +1806,7 @@ function App() {
                               selectedMovable?.type === 'title' ? 'is-selected' : ''
                             } ${isSelectionLocked({ type: 'title' }) ? 'is-locked' : ''}`}
                             style={{
-                              transform: `translate(${titleBlockPosition.x}px, ${titleBlockPosition.y}px) scale(${titleBlockScale})`,
+                              transform: `translate(${titleBlockPosition.x}px, ${titleBlockPosition.y}px) rotate(${titleBlockRotation}deg) scale(${titleBlockScale})`,
                               textAlign: textAlignMode,
                             }}
                             onPointerDown={(event) => beginTextBlockDrag('title', event)}
@@ -1381,16 +1836,30 @@ function App() {
                                   onPointerDown={(event) => beginTextBlockResize('title', event)}
                                 />
                                 {selectedMovable?.type === 'title' ? (
-                                  <button
-                                    type="button"
-                                    className="element-lock-toggle"
-                                    onClick={(event) => {
-                                      event.stopPropagation()
-                                      toggleLockForSelection({ type: 'title' })
-                                    }}
-                                  >
-                                    {isSelectionLocked({ type: 'title' }) ? '🔒' : '🔓'}
-                                  </button>
+                                  <>
+                                    <button
+                                      type="button"
+                                      className="element-lock-toggle"
+                                      onClick={(event) => {
+                                        event.stopPropagation()
+                                        toggleLockForSelection({ type: 'title' })
+                                      }}
+                                    >
+                                      {isSelectionLocked({ type: 'title' }) ? '🔒' : '🔓'}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="element-rotate-toggle"
+                                      title="제목 15도 회전"
+                                      aria-label="제목 15도 회전"
+                                      disabled={isSelectionLocked({ type: 'title' })}
+                                      onPointerDown={(event) =>
+                                        beginElementRotation({ type: 'title' }, event)
+                                      }
+                                    >
+                                      ↻
+                                    </button>
+                                  </>
                                 ) : null}
                               </>
                             )}
@@ -1402,7 +1871,7 @@ function App() {
                               selectedMovable?.type === 'body' ? 'is-selected' : ''
                             } ${isSelectionLocked({ type: 'body' }) ? 'is-locked' : ''}`}
                             style={{
-                              transform: `translate(${bodyBlockPosition.x}px, ${bodyBlockPosition.y}px) scale(${bodyBlockScale})`,
+                              transform: `translate(${bodyBlockPosition.x}px, ${bodyBlockPosition.y}px) rotate(${bodyBlockRotation}deg) scale(${bodyBlockScale})`,
                               textAlign: textAlignMode,
                             }}
                             onPointerDown={(event) => beginTextBlockDrag('body', event)}
@@ -1431,16 +1900,30 @@ function App() {
                                   onPointerDown={(event) => beginTextBlockResize('body', event)}
                                 />
                                 {selectedMovable?.type === 'body' ? (
-                                  <button
-                                    type="button"
-                                    className="element-lock-toggle"
-                                    onClick={(event) => {
-                                      event.stopPropagation()
-                                      toggleLockForSelection({ type: 'body' })
-                                    }}
-                                  >
-                                    {isSelectionLocked({ type: 'body' }) ? '🔒' : '🔓'}
-                                  </button>
+                                  <>
+                                    <button
+                                      type="button"
+                                      className="element-lock-toggle"
+                                      onClick={(event) => {
+                                        event.stopPropagation()
+                                        toggleLockForSelection({ type: 'body' })
+                                      }}
+                                    >
+                                      {isSelectionLocked({ type: 'body' }) ? '🔒' : '🔓'}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="element-rotate-toggle"
+                                      title="본문 15도 회전"
+                                      aria-label="본문 15도 회전"
+                                      disabled={isSelectionLocked({ type: 'body' })}
+                                      onPointerDown={(event) =>
+                                        beginElementRotation({ type: 'body' }, event)
+                                      }
+                                    >
+                                      ↻
+                                    </button>
+                                  </>
                                 ) : null}
                               </>
                             )}
@@ -1564,7 +2047,10 @@ function App() {
                 <h3>
                   {item.author}
                   {item.isMine ? (
-                    <span className="feed-badge title-badge">{item.displayedTitle}</span>
+                    <>
+                      <span className="feed-badge title-badge">{item.displayedTitle}</span>
+                      <span className="feed-badge streak-badge">{item.streakDays}일 연속</span>
+                    </>
                   ) : (
                     <span
                       className={`feed-badge mode-badge ${
@@ -1812,7 +2298,7 @@ function App() {
                     key={sticker.id}
                     className="sticker-view-item"
                     style={{
-                      transform: `translate(${sticker.x}px, ${sticker.y}px) scale(${sticker.scale})`,
+                      transform: `translate(${sticker.x}px, ${sticker.y}px) rotate(${sticker.rotation ?? 0}deg) scale(${sticker.scale})`,
                     }}
                   >
                     {getStickerEmoji(sticker.presetId)}
@@ -1823,7 +2309,7 @@ function App() {
               <div
                 className="slide-viewer-block title"
                 style={{
-                  transform: `translate(${activeFeedSlide.titleBlock.x}px, ${activeFeedSlide.titleBlock.y}px) scale(${activeFeedSlide.titleBlock.scale})`,
+                  transform: `translate(${activeFeedSlide.titleBlock.x}px, ${activeFeedSlide.titleBlock.y}px) rotate(${activeFeedSlide.titleBlock.rotation ?? 0}deg) scale(${activeFeedSlide.titleBlock.scale})`,
                   textAlign: activeFeedSlide.textAlign,
                 }}
               >
@@ -1834,7 +2320,7 @@ function App() {
               <div
                 className="slide-viewer-block body"
                 style={{
-                  transform: `translate(${activeFeedSlide.bodyBlock.x}px, ${activeFeedSlide.bodyBlock.y}px) scale(${activeFeedSlide.bodyBlock.scale})`,
+                  transform: `translate(${activeFeedSlide.bodyBlock.x}px, ${activeFeedSlide.bodyBlock.y}px) rotate(${activeFeedSlide.bodyBlock.rotation ?? 0}deg) scale(${activeFeedSlide.bodyBlock.scale})`,
                   textAlign: activeFeedSlide.textAlign,
                 }}
               >
