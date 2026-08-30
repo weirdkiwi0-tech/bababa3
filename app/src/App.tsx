@@ -12,6 +12,8 @@ import {
   ENTRY_MIN_LENGTH,
   STREAK_TITLES,
   calculateStreak,
+  canEditEntry,
+  formatHistoryDate,
   getCurrentMonthDays,
   getDateKey,
   getOrCreateAnonymousUserId,
@@ -27,9 +29,18 @@ import {
   type DiaryDesign,
   type DiaryDesignByDate,
   type EntryByDate,
+  type EntryHistoryItem,
   type MediaAttachment,
 } from './lib/entryDomain'
 import { deleteMediaFiles, loadMediaFiles, saveMediaFiles } from './lib/mediaStore'
+import {
+  pullCloudDiaryDesigns,
+  pullCloudEntries,
+  pullPublicFeedEntries,
+  pushCloudDiaryDesigns,
+  pushCloudEntries,
+  type SharedFeedEntry,
+} from './lib/supabaseSync'
 
 type ActiveView = 'my-diary' | 'public-feed' | 'my-info'
 type MyDiaryView = 'studio' | 'gallery'
@@ -269,6 +280,16 @@ function formatFileSize(size: number): string {
   return `${(size / (1024 * 1024)).toFixed(1)} MB`
 }
 
+function persistEntries(next: EntryByDate): void {
+  saveEntries(next)
+  void pushCloudEntries(next)
+}
+
+function persistDiaryDesigns(next: DiaryDesignByDate): void {
+  saveDiaryDesigns(next)
+  void pushCloudDiaryDesigns(next)
+}
+
 function App() {
   const [entries, setEntries] = useState<EntryByDate>(() => loadEntries())
   const [designByDate, setDesignByDate] = useState<DiaryDesignByDate>(() =>
@@ -302,6 +323,12 @@ function App() {
   )
   const [mediaUrls, setMediaUrls] = useState<Record<string, string>>({})
   const [activeEntryDateKey, setActiveEntryDateKey] = useState<string | null>(null)
+  const [activeHistoryTarget, setActiveHistoryTarget] = useState<{
+    dateKey: string
+    content: string
+    updatedAt: string
+    history: EntryHistoryItem[]
+  } | null>(null)
   const [notice, setNotice] = useState('')
   const [activeView, setActiveView] = useState<ActiveView>('my-diary')
   const [selectedTitle, setSelectedTitle] = useState(() => localStorage.getItem(SELECTED_TITLE_KEY) ?? '')
@@ -337,6 +364,53 @@ function App() {
     selectedMedia.length > 0
       ? selectedMedia.map(({ attachment }) => attachment)
       : entries[todayKey]?.attachments ?? []
+
+  const [sharedFeedEntries, setSharedFeedEntries] = useState<SharedFeedEntry[]>([])
+
+  // 다른 기기/브라우저에서 접속했을 때 최신 기록을 병합해온다 (Supabase 미설정 시 아무 동작 없음).
+  useEffect(() => {
+    let cancelled = false
+
+    void Promise.all([pullCloudEntries(), pullCloudDiaryDesigns()]).then(
+      ([cloudEntries, cloudDesigns]) => {
+        if (cancelled) {
+          return
+        }
+
+        if (cloudEntries) {
+          setEntries((current) => {
+            const merged: EntryByDate = { ...current }
+            Object.entries(cloudEntries).forEach(([dateKey, cloudEntry]) => {
+              const localEntry = merged[dateKey]
+              if (!localEntry || cloudEntry.updatedAt > localEntry.updatedAt) {
+                merged[dateKey] = cloudEntry
+              }
+            })
+            saveEntries(merged)
+            return merged
+          })
+        }
+
+        if (cloudDesigns) {
+          setDesignByDate((current) => {
+            const merged = { ...cloudDesigns, ...current }
+            saveDiaryDesigns(merged)
+            return merged
+          })
+        }
+      },
+    )
+
+    void pullPublicFeedEntries().then((shared) => {
+      if (!cancelled) {
+        setSharedFeedEntries(shared)
+      }
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   useEffect(() => {
     const ids = Object.values(entries).flatMap((entry) => [
@@ -425,10 +499,45 @@ function App() {
         isMine: true,
         displayedTitle,
         streakDays: currentStreak,
+        updatedAt: entry.updatedAt,
+        history: entry.history ?? [],
       }))
 
-    return myPublicEntries
-  }, [currentStreak, designByDate, displayedTitle, entries])
+    const othersPublicEntries = sharedFeedEntries.map((shared, index) => {
+      const qualityView: FeedSlideView | null =
+        shared.entryMode === 'quality' && shared.qualitySnapshot
+          ? {
+              author: shared.authorLabel,
+              isMine: false,
+              title: shared.qualitySnapshot.title,
+              body: shared.qualitySnapshot.body,
+              backgroundColor: shared.qualitySnapshot.backgroundColor ?? '#1b5e57',
+              templateId: shared.qualitySnapshot.templateId,
+              textAlign: shared.qualitySnapshot.textAlign,
+              titleBlock: shared.qualitySnapshot.titleBlock,
+              bodyBlock: shared.qualitySnapshot.bodyBlock,
+              stickers: shared.qualitySnapshot.stickers ?? [],
+            }
+          : null
+
+      return {
+        qualityView,
+        id: `shared-${index}-${shared.dateKey}`,
+        dateKey: shared.dateKey,
+        author: shared.authorLabel,
+        content: shared.content,
+        attachments: [] as MediaAttachment[],
+        entryMode: shared.entryMode,
+        isMine: false,
+        displayedTitle: '',
+        streakDays: 0,
+        updatedAt: shared.updatedAt,
+        history: shared.history ?? [],
+      }
+    })
+
+    return [...myPublicEntries, ...othersPublicEntries]
+  }, [currentStreak, designByDate, displayedTitle, entries, sharedFeedEntries])
   const filteredPublicFeedItems = useMemo(
     () =>
       publicFeedItems.filter(
@@ -1133,7 +1242,42 @@ function App() {
     }
   }
 
+  function startEditingEntry(dateKey: string) {
+    if (!canEditEntry(dateKey, new Date())) {
+      setNotice('수정할 수 있는 시간이 지났습니다. 작성 당일에만 수정할 수 있습니다.')
+      return
+    }
+
+    const targetEntry = entries[dateKey]
+    if (!targetEntry) {
+      return
+    }
+
+    setActiveView('my-diary')
+    setActiveEntryDateKey(null)
+
+    const mode = targetEntry.entryMode ?? 'simple'
+    setSelectedEntryMode(mode)
+
+    if (mode === 'quality' && targetEntry.qualitySnapshot) {
+      setEntryTitle(targetEntry.qualitySnapshot.title || '')
+      setQualityDraft(targetEntry.qualitySnapshot.body || '')
+    } else {
+      const parts = splitTitleAndBody(targetEntry.content)
+      setEntryTitle(parts.title)
+      setDraft(parts.body || targetEntry.content)
+    }
+
+    setNotice(`${dateKey} 기록을 수정 중입니다.`)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
   async function persistTodayEntry(mode: 'draft' | 'publish') {
+    if (!canEditEntry(todayKey, new Date())) {
+      setNotice('수정할 수 있는 시간이 지났습니다. 작성 당일에만 수정할 수 있습니다.')
+      return
+    }
+
     const contentDraft = selectedEntryMode === 'quality' ? qualityDraft : draft
     const validationError = validateEntryContent(contentDraft)
     if (validationError) {
@@ -1157,15 +1301,26 @@ function App() {
     ])
 
     const now = toISO(new Date())
+    const existing = entries[todayKey]
+    const existingHistory: EntryHistoryItem[] = existing?.history ? [...existing.history] : []
+    if (existing && existing.content !== composedContent) {
+      existingHistory.push({
+        content: existing.content,
+        updatedAt: existing.updatedAt || existing.createdAt,
+      })
+    }
+
     const next: EntryByDate = {
       ...entries,
       [todayKey]: {
         content: composedContent,
         createdAt: entries[todayKey]?.createdAt ?? now,
         updatedAt: now,
+        history: existingHistory,
         attachments,
         entryMode: selectedEntryMode ?? 'simple',
         authorId: anonymousUserId,
+        isShared: mode === 'publish' ? true : entries[todayKey]?.isShared,
         qualitySnapshot:
           selectedEntryMode === 'quality'
             ? {
@@ -1194,11 +1349,12 @@ function App() {
     }
 
     setEntries(next)
-    saveEntries(next)
+    persistEntries(next)
 
     if (mode === 'publish') {
       setActiveView('public-feed')
       setNotice('제작 완료. 공개 피드에 올렸습니다.')
+      void pullPublicFeedEntries().then(setSharedFeedEntries)
       return
     }
 
@@ -1221,7 +1377,7 @@ function App() {
     setDraftDesign(nextDesign)
     setColorHex(nextDesign.color.slice(1))
     setDesignByDate(nextByDate)
-    saveDiaryDesigns(nextByDate)
+    persistDiaryDesigns(nextByDate)
     setNotice('템플릿을 적용했습니다.')
   }
 
@@ -1240,7 +1396,7 @@ function App() {
     setDraftDesign(nextDesign)
     setColorHex(normalizedColor.slice(1))
     setDesignByDate(nextByDate)
-    saveDiaryDesigns(nextByDate)
+    persistDiaryDesigns(nextByDate)
   }
 
   function handleMediaSelection(event: ChangeEvent<HTMLInputElement>) {
@@ -1312,7 +1468,7 @@ function App() {
     delete next[todayKey]
 
     setEntries(next)
-    saveEntries(next)
+    persistEntries(next)
     void deleteMediaFiles(entries[todayKey]?.attachments?.map(({ id }) => id) ?? [])
     setNotice('오늘 기록을 삭제했습니다.')
   }
@@ -2060,6 +2216,24 @@ function App() {
                       {item.entryMode === 'quality' ? '퀄리티' : '간단'}
                     </span>
                   )}
+                  {item.history && item.history.length > 0 ? (
+                    <button
+                      type="button"
+                      className="history-emoji-btn feed-history-btn"
+                      title="수정 이력 및 이전 내용 보기"
+                      aria-label={`${item.dateKey} 수정 이력 보기`}
+                      onClick={() =>
+                        setActiveHistoryTarget({
+                          dateKey: item.dateKey,
+                          content: item.content,
+                          updatedAt: item.updatedAt,
+                          history: item.history,
+                        })
+                      }
+                    >
+                      ✏️ 수정됨
+                    </button>
+                  ) : null}
                 </h3>
                 {item.entryMode === 'quality' && item.qualityView ? (
                   <>
@@ -2110,7 +2284,46 @@ function App() {
                       }
                     }}
                   >
-                    <h3>{dateKey}</h3>
+                    <div className="my-entry-card-header">
+                      <div className="my-entry-title-group">
+                        <h3>{dateKey}</h3>
+                        {entry.history && entry.history.length > 0 ? (
+                          <button
+                            type="button"
+                            className="history-emoji-btn"
+                            title="수정 이력 및 이전 내용 보기"
+                            aria-label={`${dateKey} 수정 이력 보기`}
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              setActiveHistoryTarget({
+                                dateKey,
+                                content: entry.content,
+                                updatedAt: entry.updatedAt,
+                                history: entry.history!,
+                              })
+                            }}
+                          >
+                            ✏️ 수정됨
+                          </button>
+                        ) : null}
+                      </div>
+                      {canEditEntry(dateKey, new Date()) ? (
+                        <button
+                          type="button"
+                          className="edit-entry-btn"
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            startEditingEntry(dateKey)
+                          }}
+                        >
+                          수정
+                        </button>
+                      ) : (
+                        <span className="edit-disabled-tag" title="기록 당일에만 수정이 가능합니다.">
+                          수정 불가 (당일만)
+                        </span>
+                      )}
+                    </div>
                     <p>{entry.content}</p>
                     {entry.attachments?.length ? (
                       <p className="meta attachment-hint">첨부 파일 {entry.attachments.length}개 · 눌러서 보기</p>
@@ -2211,7 +2424,42 @@ function App() {
             </div>
 
             <article className="selected-entry" aria-live="polite">
-              <h3>{selectedDateKey} 기록</h3>
+              <div className="selected-entry-header">
+                <div className="my-entry-title-group">
+                  <h3>{selectedDateKey} 기록</h3>
+                  {selectedEntry?.history && selectedEntry.history.length > 0 ? (
+                    <button
+                      type="button"
+                      className="history-emoji-btn"
+                      title="수정 이력 및 이전 내용 보기"
+                      aria-label={`${selectedDateKey} 수정 이력 보기`}
+                      onClick={() =>
+                        setActiveHistoryTarget({
+                          dateKey: selectedDateKey,
+                          content: selectedEntry.content,
+                          updatedAt: selectedEntry.updatedAt,
+                          history: selectedEntry.history!,
+                        })
+                      }
+                    >
+                      ✏️ 수정됨
+                    </button>
+                  ) : null}
+                </div>
+                {selectedEntry ? (
+                  canEditEntry(selectedDateKey, new Date()) ? (
+                    <button
+                      type="button"
+                      className="edit-entry-btn"
+                      onClick={() => startEditingEntry(selectedDateKey)}
+                    >
+                      수정
+                    </button>
+                  ) : (
+                    <span className="edit-disabled-tag">작성 당일에만 수정 가능</span>
+                  )
+                ) : null}
+              </div>
               {selectedEntry ? (
                 <p>{selectedEntry.content}</p>
               ) : (
@@ -2358,9 +2606,40 @@ function App() {
                 <p className="eyebrow">{activeEntryDateKey}</p>
                 <h2>일기 첨부 파일</h2>
               </div>
-              <button type="button" className="ghost" onClick={() => setActiveEntryDateKey(null)}>
-                닫기
-              </button>
+              <div className="media-viewer-actions">
+                {activeEntry.history && activeEntry.history.length > 0 ? (
+                  <button
+                    type="button"
+                    className="history-emoji-btn"
+                    title="수정 이력 및 이전 내용 보기"
+                    aria-label={`${activeEntryDateKey} 수정 이력 보기`}
+                    onClick={() =>
+                      setActiveHistoryTarget({
+                        dateKey: activeEntryDateKey,
+                        content: activeEntry.content,
+                        updatedAt: activeEntry.updatedAt,
+                        history: activeEntry.history!,
+                      })
+                    }
+                  >
+                    ✏️ 수정 이력
+                  </button>
+                ) : null}
+                {canEditEntry(activeEntryDateKey, new Date()) ? (
+                  <button
+                    type="button"
+                    className="edit-entry-btn"
+                    onClick={() => startEditingEntry(activeEntryDateKey)}
+                  >
+                    수정하기
+                  </button>
+                ) : (
+                  <span className="edit-disabled-tag">작성 당일에만 수정 가능</span>
+                )}
+                <button type="button" className="ghost" onClick={() => setActiveEntryDateKey(null)}>
+                  닫기
+                </button>
+              </div>
             </div>
             <p className="media-viewer-content">{activeEntry.content}</p>
             {activeEntry.attachments?.length ? (
@@ -2392,6 +2671,51 @@ function App() {
               </div>
             ) : (
               <p className="empty">이 일기에는 첨부 파일이 없습니다.</p>
+            )}
+          </article>
+        </section>
+      ) : null}
+
+      {activeHistoryTarget ? (
+        <section className="media-viewer-overlay" aria-label="수정 이력 보기">
+          <article className="media-viewer-panel history-viewer-panel">
+            <div className="slide-viewer-header">
+              <div>
+                <p className="eyebrow">{activeHistoryTarget.dateKey}</p>
+                <h2>일기 수정 이력 ✏️</h2>
+              </div>
+              <button type="button" className="ghost" onClick={() => setActiveHistoryTarget(null)}>
+                닫기
+              </button>
+            </div>
+
+            <div className="history-current-info">
+              <p className="meta">최종 수정 시각: {formatHistoryDate(activeHistoryTarget.updatedAt)}</p>
+              <div className="history-current-content">
+                <strong>현재 내용</strong>
+                <p>{activeHistoryTarget.content}</p>
+              </div>
+            </div>
+
+            <h3 className="history-section-title">
+              수정 전 내용 목록 ({activeHistoryTarget.history.length}개)
+            </h3>
+            {activeHistoryTarget.history.length ? (
+              <div className="history-list">
+                {activeHistoryTarget.history.slice().reverse().map((item, index) => (
+                  <article key={index} className="history-item-card">
+                    <div className="history-item-header">
+                      <span className="history-item-ver">
+                        수정 전 (버전 #{activeHistoryTarget.history.length - index})
+                      </span>
+                      <span className="history-item-time">{formatHistoryDate(item.updatedAt)}</span>
+                    </div>
+                    <p className="history-item-content">{item.content}</p>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <p className="empty">수정 전 이력이 없습니다.</p>
             )}
           </article>
         </section>

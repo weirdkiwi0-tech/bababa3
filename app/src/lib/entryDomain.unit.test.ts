@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
   calculateStreak,
+  canEditEntry,
   ENTRY_MIN_LENGTH,
+  formatHistoryDate,
   getDateKey,
   getRecentPeriodCount,
   getStreakTitle,
@@ -127,5 +129,37 @@ describe('entryDomain.loadEntries', () => {
 
     expect(loaded['2026-08-08']).toBeUndefined()
     expect(loaded['2026-08-09']?.content).toBe('정상 내용입니다')
+  })
+})
+
+describe('entryDomain.canEditEntry', () => {
+  it('returns true when entry date matches current date', () => {
+    const now = new Date('2026-08-05T14:30:00.000+09:00')
+    const dateKey = getDateKey(now) // 2026-08-05
+
+    expect(canEditEntry(dateKey, now)).toBe(true)
+  })
+
+  it('returns false when entry date is from a past date', () => {
+    const now = new Date('2026-08-06T09:00:00.000+09:00')
+    const pastEntryDateKey = '2026-08-05'
+
+    expect(canEditEntry(pastEntryDateKey, now)).toBe(false)
+  })
+
+  it('returns false when entry date is empty or invalid', () => {
+    const now = new Date('2026-08-05T14:30:00.000+09:00')
+
+    expect(canEditEntry('', now)).toBe(false)
+  })
+})
+
+describe('entryDomain.formatHistoryDate', () => {
+  it('formats ISO string into readable Korean date time', () => {
+    const iso = '2026-08-05T14:30:00.000Z'
+    const formatted = formatHistoryDate(iso)
+
+    expect(formatted).toContain('2026')
+    expect(formatted).toContain('8월')
   })
 })

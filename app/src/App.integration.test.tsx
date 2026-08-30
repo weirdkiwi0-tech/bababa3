@@ -188,4 +188,78 @@ describe('App integration', () => {
     expect(image.parentElement?.style.transform).toContain('rotate(90deg)')
     expect(window.getComputedStyle(image.parentElement as HTMLElement).transformOrigin).toBe('50% 50%')
   })
+
+  it('allows editing entry on the same day and restricts editing past entries', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    await openSimpleEntryMode(user)
+    await user.type(screen.getByLabelText('내용'), '오늘 작성한 기록입니다. 당일 수정 가능해야 합니다.')
+    await user.click(screen.getByRole('button', { name: '저장' }))
+
+    await user.click(screen.getByRole('button', { name: '내 정보' }))
+
+    const editBtns = screen.getAllByRole('button', { name: '수정' })
+    expect(editBtns.length).toBeGreaterThan(0)
+    await user.click(editBtns[0])
+
+    expect(screen.getByText(/기록을 수정 중입니다/)).toBeInTheDocument()
+  })
+
+  it('displays edit emoji on modified entries and shows history modal on click', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    await openSimpleEntryMode(user)
+    await user.type(screen.getByLabelText('내용'), '수정 전 첫 번째 기록 내용입니다.')
+    await user.click(screen.getByRole('button', { name: '저장' }))
+
+    await user.click(screen.getByRole('button', { name: '내 정보' }))
+    const editBtn = screen.getAllByRole('button', { name: '수정' })[0]
+    await user.click(editBtn)
+
+    const textarea = screen.getByLabelText('내용')
+    await user.clear(textarea)
+    await user.type(textarea, '수정된 두 번째 기록 내용입니다.')
+    await user.click(screen.getByRole('button', { name: '저장' }))
+
+    await user.click(screen.getByRole('button', { name: '내 정보' }))
+
+    const emojiBtn = screen.getAllByRole('button', { name: /수정 이력 보기/ })[0]
+    expect(emojiBtn).toBeInTheDocument()
+
+    await user.click(emojiBtn)
+
+    expect(screen.getByRole('heading', { name: /일기 수정 이력/ })).toBeInTheDocument()
+    expect(screen.getByText('수정 전 첫 번째 기록 내용입니다.')).toBeInTheDocument()
+    expect(screen.getAllByText('수정된 두 번째 기록 내용입니다.').length).toBeGreaterThan(0)
+  })
+
+  it('shows modified emoji on public feed entries and opens history modal on click', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    await openSimpleEntryMode(user)
+    await user.type(screen.getByLabelText('내용'), '공개 피드 수정 전 첫 내용입니다.')
+    await user.click(screen.getByRole('button', { name: '완료하고 올리기' }))
+
+    await user.click(screen.getByRole('button', { name: '내 일기' }))
+    await user.click(screen.getByRole('button', { name: '내 정보' }))
+    const editBtn = screen.getAllByRole('button', { name: '수정' })[0]
+    await user.click(editBtn)
+
+    const textarea = screen.getByLabelText('내용')
+    await user.clear(textarea)
+    await user.type(textarea, '공개 피드 수정 후 두 번째 내용입니다.')
+    await user.click(screen.getByRole('button', { name: '완료하고 올리기' }))
+
+    await user.click(screen.getByRole('button', { name: '다른 사람 일기' }))
+
+    const feedEmojiBtn = screen.getAllByRole('button', { name: /수정 이력 보기/ })[0]
+    expect(feedEmojiBtn).toBeInTheDocument()
+    await user.click(feedEmojiBtn)
+
+    expect(screen.getByRole('heading', { name: /일기 수정 이력/ })).toBeInTheDocument()
+    expect(screen.getByText('공개 피드 수정 전 첫 내용입니다.')).toBeInTheDocument()
+  })
 })

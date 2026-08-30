@@ -1,10 +1,17 @@
+export type EntryHistoryItem = {
+  content: string
+  updatedAt: string
+}
+
 export type Entry = {
   content: string
   createdAt: string
   updatedAt: string
+  history?: EntryHistoryItem[]
   attachments?: MediaAttachment[]
   entryMode?: 'simple' | 'quality'
   authorId?: string
+  isShared?: boolean
   qualitySnapshot?: {
     title: string
     body: string
@@ -84,6 +91,35 @@ const dateFormatter = new Intl.DateTimeFormat('sv-SE', {
 
 export function getDateKey(date: Date): string {
   return dateFormatter.format(date)
+}
+
+/**
+ * 기록을 수정할 수 있는지 판단합니다.
+ * 24시간 제한이 아닌, 기록 작성/속한 날짜(entryDateKey)와 현재 날짜(Asia/Seoul)가 동일한 당일에만 수정을 허용합니다.
+ */
+export function canEditEntry(entryDateKey: string, now: Date = new Date()): boolean {
+  if (!entryDateKey) {
+    return false
+  }
+  const todayKey = getDateKey(now)
+  return entryDateKey === todayKey
+}
+
+export function formatHistoryDate(isoString: string): string {
+  try {
+    const date = new Date(isoString)
+    return new Intl.DateTimeFormat('ko-KR', {
+      timeZone: APP_TIME_ZONE,
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: 'numeric',
+      second: 'numeric',
+    }).format(date)
+  } catch {
+    return isoString
+  }
 }
 
 function getMonthKey(dateKey: string): string {

@@ -18,6 +18,7 @@
     "tdd:e2e": "npm run test:e2e"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.112.4",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },
