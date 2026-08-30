@@ -173,6 +173,19 @@ export async function pushCloudEntries(entries: EntryByDate): Promise<void> {
   }
 }
 
+export async function deleteCloudEntry(dateKey: string): Promise<void> {
+  if (!supabase) {
+    return
+  }
+
+  const userId = await getOrCreateCloudUserId()
+  if (!userId) {
+    return
+  }
+
+  await supabase.from('entries').delete().eq('user_id', userId).eq('date', dateKey)
+}
+
 export async function pullCloudDiaryDesigns(): Promise<DiaryDesignByDate | null> {
   if (!supabase) {
     return null

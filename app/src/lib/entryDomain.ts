@@ -105,6 +105,20 @@ export function canEditEntry(entryDateKey: string, now: Date = new Date()): bool
   return entryDateKey === todayKey
 }
 
+/**
+ * 기록을 삭제할 수 있는지 판단합니다. 작성일 제한은 없으며 소유권만 확인합니다.
+ * authorId가 없으면(레거시 로컬 기록) 허용하고, 있으면 currentUserId와 일치할 때만 허용합니다.
+ */
+export function canDeleteEntry(entry: Entry | undefined, currentUserId: string): boolean {
+  if (!entry) {
+    return false
+  }
+  if (!entry.authorId) {
+    return true
+  }
+  return entry.authorId === currentUserId
+}
+
 export function formatHistoryDate(isoString: string): string {
   try {
     const date = new Date(isoString)
@@ -226,6 +240,41 @@ export function validateEntryContent(content: string): string | null {
   }
 
   return null
+}
+
+export const ALLOWED_IMAGE_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp']
+export const ALLOWED_VIDEO_MIME_TYPES = ['video/mp4', 'video/webm']
+export const MAX_IMAGE_SIZE_MB = 10
+export const MAX_VIDEO_SIZE_MB = 100
+
+export function validateMediaAttachment(file: { type: string; size: number }): string | null {
+  if (file.type.startsWith('image/')) {
+    if (!ALLOWED_IMAGE_MIME_TYPES.includes(file.type)) {
+      return '지원하지 않는 이미지 형식입니다. jpg, png, webp만 첨부할 수 있습니다.'
+    }
+    if (file.size > MAX_IMAGE_SIZE_MB * 1024 * 1024) {
+      return `이미지 용량이 ${MAX_IMAGE_SIZE_MB}MB를 초과했습니다.`
+    }
+    return null
+  }
+
+  if (file.type.startsWith('video/')) {
+    if (!ALLOWED_VIDEO_MIME_TYPES.includes(file.type)) {
+      return '지원하지 않는 동영상 형식입니다. mp4, webm만 첨부할 수 있습니다.'
+    }
+    if (file.size > MAX_VIDEO_SIZE_MB * 1024 * 1024) {
+      return `동영상 용량이 ${MAX_VIDEO_SIZE_MB}MB를 초과했습니다.`
+    }
+    return null
+  }
+
+  return null
+}
+
+export const MAX_ATTACHMENT_COUNT_PER_ENTRY = 10
+
+export function canAddAttachment(currentCount: number): boolean {
+  return currentCount < MAX_ATTACHMENT_COUNT_PER_ENTRY
 }
 
 export function getStreakTitle(streak: number): (typeof STREAK_TITLES)[number] {

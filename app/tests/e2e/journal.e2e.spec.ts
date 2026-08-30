@@ -16,6 +16,36 @@ test.describe('HaruCheck journal flow', () => {
     await expect(page.getByLabel('내용')).toHaveValue('오늘은 테스트 주도 개발로 기본 흐름을 구축했다.')
   })
 
+  test('deletes an entry from my info panel and keeps it deleted after reload', async ({ page }) => {
+    await page.goto('/')
+
+    await page.getByRole('button', { name: '간편 작성' }).click()
+    await page.getByLabel('내용').fill('삭제 기능을 검증하기 위한 오늘의 기록입니다.')
+    await page.getByRole('button', { name: '저장' }).click()
+
+    await expect(page.getByText('오늘 기록 초안을 저장했습니다.')).toBeVisible()
+
+    await page.getByRole('button', { name: '내 정보' }).click()
+
+    const myEntryPanel = page.getByLabel('내가 올린 일기 내용')
+    const entryCard = myEntryPanel.locator('.my-entry-card')
+    await expect(entryCard).toHaveCount(1)
+    const dateKey = await entryCard.locator('h3').innerText()
+
+    page.once('dialog', (dialog) => dialog.accept())
+    await entryCard.locator('.delete-entry-btn').click()
+
+    await expect(page.getByText(`${dateKey} 기록을 삭제했습니다.`)).toBeVisible()
+    await expect(myEntryPanel.locator('.my-entry-card')).toHaveCount(0)
+    await expect(myEntryPanel.getByText('아직 작성한 일기가 없습니다.')).toBeVisible()
+
+    await page.reload()
+
+    await page.getByRole('button', { name: '내 정보' }).click()
+    await expect(page.getByLabel('내가 올린 일기 내용').locator('.my-entry-card')).toHaveCount(0)
+    await expect(page.getByLabel('내가 올린 일기 내용').getByText('아직 작성한 일기가 없습니다.')).toBeVisible()
+  })
+
   test('shows validation message for too-short input', async ({ page }) => {
     await page.goto('/')
 
@@ -24,6 +54,43 @@ test.describe('HaruCheck journal flow', () => {
     await page.getByRole('button', { name: '저장' }).click()
 
     await expect(page.getByText('기록은 10자 이상 입력해주세요.')).toBeVisible()
+  })
+
+  test('rejects unsupported or oversized media and keeps valid attachments working', async ({
+    page,
+  }) => {
+    await page.goto('/')
+
+    await page.getByRole('button', { name: '간편 작성' }).click()
+    await page.getByLabel('내용').fill('허용되지 않는 첨부 파일을 검증하는 기록입니다.')
+
+    await page.getByLabel('사진/파일/영상 첨부').setInputFiles({
+      name: 'unsupported.gif',
+      mimeType: 'image/gif',
+      buffer: Buffer.from('test-image'),
+    })
+
+    await expect(page.getByText('지원하지 않는 이미지 형식입니다. jpg, png, webp만 첨부할 수 있습니다.')).toBeVisible()
+    await expect(page.getByText('선택된 첨부 파일이 없습니다.')).toBeVisible()
+    await expect(page.getByText(/unsupported\.gif/)).toHaveCount(0)
+
+    await page.getByLabel('사진/파일/영상 첨부').setInputFiles({
+      name: 'oversized.jpg',
+      mimeType: 'image/jpeg',
+      buffer: Buffer.alloc(11 * 1024 * 1024),
+    })
+
+    await expect(page.getByText('이미지 용량이 10MB를 초과했습니다.')).toBeVisible()
+    await expect(page.getByText('선택된 첨부 파일이 없습니다.')).toBeVisible()
+    await expect(page.getByText(/oversized\.jpg/)).toHaveCount(0)
+
+    await page.getByLabel('사진/파일/영상 첨부').setInputFiles({
+      name: 'valid.jpg',
+      mimeType: 'image/jpeg',
+      buffer: Buffer.from('test-image'),
+    })
+
+    await expect(page.getByText('선택된 파일: valid.jpg')).toBeVisible()
   })
 
   test('opens an uploaded image from the saved diary card', async ({ page }) => {

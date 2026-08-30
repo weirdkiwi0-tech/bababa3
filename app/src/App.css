@@ -1620,6 +1620,12 @@ button:hover {
   gap: 0.5rem;
 }
 
+.entry-action-group {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
 .edit-entry-btn {
   background: #1e6f67;
   color: #ffffff;
@@ -1634,6 +1640,14 @@ button:hover {
 
 .edit-entry-btn:hover {
   background: #144e48;
+}
+
+.delete-entry-btn {
+  padding: 0.28rem 0.65rem;
+  border-radius: 6px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
 }
 
 .edit-disabled-tag {

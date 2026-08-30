@@ -10,8 +10,11 @@ import './App.css'
 import {
   APP_TIME_ZONE,
   ENTRY_MIN_LENGTH,
+  MAX_ATTACHMENT_COUNT_PER_ENTRY,
   STREAK_TITLES,
   calculateStreak,
+  canAddAttachment,
+  canDeleteEntry,
   canEditEntry,
   formatHistoryDate,
   getCurrentMonthDays,
@@ -26,6 +29,7 @@ import {
   SELECTED_TITLE_KEY,
   toISO,
   validateEntryContent,
+  validateMediaAttachment,
   type DiaryDesign,
   type DiaryDesignByDate,
   type EntryByDate,
@@ -34,6 +38,7 @@ import {
 } from './lib/entryDomain'
 import { deleteMediaFiles, loadMediaFiles, saveMediaFiles } from './lib/mediaStore'
 import {
+  deleteCloudEntry,
   pullCloudDiaryDesigns,
   pullCloudEntries,
   pullPublicFeedEntries,
@@ -1409,10 +1414,27 @@ function App() {
     }
 
     setMediaPickerOpen(false)
-    setSelectedMedia(
-      Array.from(files).map((file) => {
-        const id = createMediaId()
-        return {
+
+    let firstError: string | null = null
+    let attachmentLimitExceeded = false
+    let currentAttachmentCount = entries[todayKey]?.attachments?.length ?? 0
+    const validMedia = Array.from(files).flatMap((file) => {
+      const error = validateMediaAttachment({ type: file.type, size: file.size })
+      if (error) {
+        firstError = firstError ?? error
+        return []
+      }
+
+      if (!canAddAttachment(currentAttachmentCount)) {
+        attachmentLimitExceeded = true
+        return []
+      }
+
+      currentAttachmentCount += 1
+
+      const id = createMediaId()
+      return [
+        {
           id,
           file,
           attachment: {
@@ -1422,9 +1444,17 @@ function App() {
             size: file.size,
             kind: getMediaKind(file.type),
           },
-        }
-      }),
-    )
+        },
+      ]
+    })
+
+    if (firstError) {
+      setNotice(firstError)
+    } else if (attachmentLimitExceeded) {
+      setNotice(`첨부 파일은 최대 ${MAX_ATTACHMENT_COUNT_PER_ENTRY}개까지 가능합니다.`)
+    }
+
+    setSelectedMedia(validMedia)
   }
 
   function handleCanvasImageSelection(event: ChangeEvent<HTMLInputElement>) {
@@ -1458,19 +1488,39 @@ function App() {
     setNotice('이미지를 캔버스에 삽입했습니다. 드래그하거나 모서리에서 크기를 조절해보세요.')
   }
 
-  function deleteTodayEntry() {
-    if (!entries[todayKey]) {
-      setNotice('삭제할 오늘 기록이 없습니다.')
+  function deleteEntry(dateKey: string) {
+    const target = entries[dateKey]
+    if (!target) {
+      setNotice('삭제할 기록이 없습니다.')
+      return
+    }
+
+    if (!canDeleteEntry(target, anonymousUserId)) {
+      setNotice('본인이 작성한 기록만 삭제할 수 있습니다.')
+      return
+    }
+
+    if (!window.confirm(`${dateKey} 기록을 삭제하시겠습니까? 삭제 후에는 복구할 수 없습니다.`)) {
       return
     }
 
     const next = { ...entries }
-    delete next[todayKey]
+    delete next[dateKey]
 
     setEntries(next)
     persistEntries(next)
-    void deleteMediaFiles(entries[todayKey]?.attachments?.map(({ id }) => id) ?? [])
-    setNotice('오늘 기록을 삭제했습니다.')
+    void deleteCloudEntry(dateKey)
+    void deleteMediaFiles(target.attachments?.map(({ id }) => id) ?? [])
+
+    if (activeEntryDateKey === dateKey) {
+      setActiveEntryDateKey(null)
+    }
+
+    setNotice(`${dateKey} 기록을 삭제했습니다.`)
+  }
+
+  function deleteTodayEntry() {
+    deleteEntry(todayKey)
   }
 
   function selectTitle(title: (typeof STREAK_TITLES)[number]): void {
@@ -2231,7 +2281,7 @@ function App() {
                         })
                       }
                     >
-                      ✏️ 수정됨
+                      수정됨
                     </button>
                   ) : null}
                 </h3>
@@ -2263,6 +2313,7 @@ function App() {
         </section>
       ) : (
         <>
+          {notice ? <p className="notice">{notice}</p> : null}
           <section className="panel my-entry-panel" aria-label="내가 올린 일기 내용">
             <h2>내가 올린 일기</h2>
             <p className="meta">최신순으로 최근 12개 표시</p>
@@ -2303,26 +2354,38 @@ function App() {
                               })
                             }}
                           >
-                            ✏️ 수정됨
+                            수정됨
                           </button>
                         ) : null}
                       </div>
-                      {canEditEntry(dateKey, new Date()) ? (
+                      <div className="entry-action-group">
+                        {canEditEntry(dateKey, new Date()) ? (
+                          <button
+                            type="button"
+                            className="edit-entry-btn"
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              startEditingEntry(dateKey)
+                            }}
+                          >
+                            수정
+                          </button>
+                        ) : (
+                          <span className="edit-disabled-tag" title="기록 당일에만 수정이 가능합니다.">
+                            수정 불가 (당일만)
+                          </span>
+                        )}
                         <button
                           type="button"
-                          className="edit-entry-btn"
+                          className="ghost delete-entry-btn"
                           onClick={(event) => {
                             event.stopPropagation()
-                            startEditingEntry(dateKey)
+                            deleteEntry(dateKey)
                           }}
                         >
-                          수정
+                          삭제
                         </button>
-                      ) : (
-                        <span className="edit-disabled-tag" title="기록 당일에만 수정이 가능합니다.">
-                          수정 불가 (당일만)
-                        </span>
-                      )}
+                      </div>
                     </div>
                     <p>{entry.content}</p>
                     {entry.attachments?.length ? (
@@ -2442,22 +2505,31 @@ function App() {
                         })
                       }
                     >
-                      ✏️ 수정됨
+                      수정됨
                     </button>
                   ) : null}
                 </div>
                 {selectedEntry ? (
-                  canEditEntry(selectedDateKey, new Date()) ? (
+                  <div className="entry-action-group">
+                    {canEditEntry(selectedDateKey, new Date()) ? (
+                      <button
+                        type="button"
+                        className="edit-entry-btn"
+                        onClick={() => startEditingEntry(selectedDateKey)}
+                      >
+                        수정
+                      </button>
+                    ) : (
+                      <span className="edit-disabled-tag">작성 당일에만 수정 가능</span>
+                    )}
                     <button
                       type="button"
-                      className="edit-entry-btn"
-                      onClick={() => startEditingEntry(selectedDateKey)}
+                      className="ghost delete-entry-btn"
+                      onClick={() => deleteEntry(selectedDateKey)}
                     >
-                      수정
+                      삭제
                     </button>
-                  ) : (
-                    <span className="edit-disabled-tag">작성 당일에만 수정 가능</span>
-                  )
+                  </div>
                 ) : null}
               </div>
               {selectedEntry ? (
@@ -2622,20 +2694,29 @@ function App() {
                       })
                     }
                   >
-                    ✏️ 수정 이력
+                    수정 이력
                   </button>
                 ) : null}
-                {canEditEntry(activeEntryDateKey, new Date()) ? (
+                <div className="entry-action-group">
+                  {canEditEntry(activeEntryDateKey, new Date()) ? (
+                    <button
+                      type="button"
+                      className="edit-entry-btn"
+                      onClick={() => startEditingEntry(activeEntryDateKey)}
+                    >
+                      수정하기
+                    </button>
+                  ) : (
+                    <span className="edit-disabled-tag">작성 당일에만 수정 가능</span>
+                  )}
                   <button
                     type="button"
-                    className="edit-entry-btn"
-                    onClick={() => startEditingEntry(activeEntryDateKey)}
+                    className="ghost delete-entry-btn"
+                    onClick={() => deleteEntry(activeEntryDateKey)}
                   >
-                    수정하기
+                    삭제
                   </button>
-                ) : (
-                  <span className="edit-disabled-tag">작성 당일에만 수정 가능</span>
-                )}
+                </div>
                 <button type="button" className="ghost" onClick={() => setActiveEntryDateKey(null)}>
                   닫기
                 </button>
@@ -2682,7 +2763,7 @@ function App() {
             <div className="slide-viewer-header">
               <div>
                 <p className="eyebrow">{activeHistoryTarget.dateKey}</p>
-                <h2>일기 수정 이력 ✏️</h2>
+                <h2>일기 수정 이력</h2>
               </div>
               <button type="button" className="ghost" onClick={() => setActiveHistoryTarget(null)}>
                 닫기

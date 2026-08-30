@@ -1,0 +1,21 @@
+# 환경변수/시크릿 (Supabase URL, anon key 등)
+.env
+.env.*
+!.env.example
+
+# Azure Developer CLI 로컬 상태 (구독 ID, 리소스 그룹 등 환경별 값)
+.azure/
+
+# OS / 에디터
+.DS_Store
+.vscode/*
+!.vscode/extensions.json
+.idea
+
+# Node / 빌드 산출물
+node_modules/
+dist/
+dist-ssr/
+test-results/
+playwright-report/
+*.log

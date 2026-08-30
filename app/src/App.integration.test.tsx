@@ -1,8 +1,8 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import App from './App'
-import { getDateKey, STORAGE_KEY, type EntryByDate } from './lib/entryDomain'
+import { getDateKey, STORAGE_KEY, USER_KEY, type Entry, type EntryByDate } from './lib/entryDomain'
 
 function seedTodayEntry(content: string): void {
   const todayKey = getDateKey(new Date())
@@ -15,6 +15,26 @@ function seedTodayEntry(content: string): void {
   }
 
   localStorage.setItem(STORAGE_KEY, JSON.stringify(seeded))
+}
+
+function seedEntry(dateKey: string, entry: Partial<Entry> & { content: string }): void {
+  const existing = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}') as EntryByDate
+  const seeded: EntryByDate = {
+    ...existing,
+    [dateKey]: {
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      ...entry,
+    },
+  }
+
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(seeded))
+}
+
+function getPastDateKey(daysAgo: number): string {
+  const date = new Date()
+  date.setDate(date.getDate() - daysAgo)
+  return getDateKey(date)
 }
 
 async function openSimpleEntryMode(user: ReturnType<typeof userEvent.setup>): Promise<void> {
@@ -84,6 +104,7 @@ describe('App integration', () => {
 
   it('deletes today entry when delete button is clicked', async () => {
     seedTodayEntry('삭제 대상 기록입니다. 충분한 길이를 맞췄습니다.')
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
 
     const user = userEvent.setup()
     render(<App />)
@@ -91,11 +112,71 @@ describe('App integration', () => {
     await openSimpleEntryMode(user)
     await user.click(screen.getByRole('button', { name: '오늘 기록 삭제' }))
 
-    expect(screen.getByText('오늘 기록을 삭제했습니다.')).toBeInTheDocument()
-
     const todayKey = getDateKey(new Date())
+    expect(screen.getByText(`${todayKey} 기록을 삭제했습니다.`)).toBeInTheDocument()
+
     const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}') as EntryByDate
     expect(stored[todayKey]).toBeUndefined()
+  })
+
+  it('deletes a past-date entry owned by me when the delete button is confirmed', async () => {
+    const pastDateKey = getPastDateKey(3)
+    seedEntry(pastDateKey, { content: '지난 날짜에 작성한 내 기록입니다. 삭제 테스트용입니다.' })
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: '내 정보' }))
+    expect(screen.getByText(pastDateKey)).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: '삭제' }))
+
+    expect(screen.getByText(`${pastDateKey} 기록을 삭제했습니다.`)).toBeInTheDocument()
+    expect(screen.queryByText(pastDateKey)).not.toBeInTheDocument()
+
+    const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}') as EntryByDate
+    expect(stored[pastDateKey]).toBeUndefined()
+  })
+
+  it('blocks deleting an entry authored by another user', async () => {
+    localStorage.setItem(USER_KEY, 'me-user-id')
+    const pastDateKey = getPastDateKey(2)
+    seedEntry(pastDateKey, {
+      content: '다른 사람이 작성한 기록입니다. 삭제되면 안 됩니다.',
+      authorId: 'other-user-id',
+    })
+    const confirmSpy = vi.spyOn(window, 'confirm')
+
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: '내 정보' }))
+    await user.click(screen.getByRole('button', { name: '삭제' }))
+
+    expect(screen.getByText('본인이 작성한 기록만 삭제할 수 있습니다.')).toBeInTheDocument()
+    expect(confirmSpy).not.toHaveBeenCalled()
+    expect(screen.getByText(pastDateKey)).toBeInTheDocument()
+
+    const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}') as EntryByDate
+    expect(stored[pastDateKey]?.content).toBe('다른 사람이 작성한 기록입니다. 삭제되면 안 됩니다.')
+  })
+
+  it('keeps the entry when the delete confirmation is cancelled', async () => {
+    const pastDateKey = getPastDateKey(1)
+    seedEntry(pastDateKey, { content: '취소 테스트를 위한 지난 날짜 기록입니다.' })
+    vi.spyOn(window, 'confirm').mockReturnValue(false)
+
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: '내 정보' }))
+    await user.click(screen.getByRole('button', { name: '삭제' }))
+
+    expect(screen.getByText(pastDateKey)).toBeInTheDocument()
+
+    const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}') as EntryByDate
+    expect(stored[pastDateKey]?.content).toBe('취소 테스트를 위한 지난 날짜 기록입니다.')
   })
 
   it('keeps simple entry content out of the design editor', async () => {
@@ -143,6 +224,69 @@ describe('App integration', () => {
     expect(screen.getByRole('img', { name: 'photo.png' })).toBeInTheDocument()
     expect(screen.getByText('memo.txt')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: '파일 열기' })).toBeInTheDocument()
+  })
+
+  it('rejects unsupported or oversized media and keeps valid attachments', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    await openSimpleEntryMode(user)
+
+    const oversizedImage = new File(['x'], 'huge.jpg', { type: 'image/jpeg' })
+    Object.defineProperty(oversizedImage, 'size', { value: 10 * 1024 * 1024 + 1 })
+
+    await user.upload(screen.getByLabelText('사진/파일/영상 첨부'), [
+      new File(['gif'], 'animated.gif', { type: 'image/gif' }),
+      oversizedImage,
+    ])
+
+    expect(
+      screen.getByText('지원하지 않는 이미지 형식입니다. jpg, png, webp만 첨부할 수 있습니다.'),
+    ).toBeInTheDocument()
+    expect(screen.getByText('선택된 첨부 파일이 없습니다.')).toBeInTheDocument()
+
+    await user.upload(screen.getByLabelText('사진/파일/영상 첨부'), [
+      new File(['image'], 'photo.jpg', { type: 'image/jpeg' }),
+      new File(['gif'], 'animated.gif', { type: 'image/gif' }),
+    ])
+
+    expect(screen.getByText('선택된 파일: photo.jpg')).toBeInTheDocument()
+  })
+
+  it('rejects attachments beyond the max count of 10 per entry', async () => {
+    const todayKey = getDateKey(new Date())
+    const existingAttachments = Array.from({ length: 9 }, (_, index) => ({
+      id: `existing-${index}`,
+      name: `existing-${index}.png`,
+      type: 'image/png',
+      size: 100,
+      kind: 'image' as const,
+    }))
+    const seeded: EntryByDate = {
+      [todayKey]: {
+        content: '이미 아홉 개의 첨부 파일을 가진 기록입니다. 최대치에 근접했습니다.',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        attachments: existingAttachments,
+      },
+    }
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(seeded))
+
+    const user = userEvent.setup()
+    render(<App />)
+
+    await openSimpleEntryMode(user)
+
+    await user.upload(screen.getByLabelText('사진/파일/영상 첨부'), [
+      new File(['a'], 'new1.png', { type: 'image/png' }),
+      new File(['b'], 'new2.png', { type: 'image/png' }),
+      new File(['c'], 'new3.png', { type: 'image/png' }),
+    ])
+
+    expect(
+      screen.getByText('첨부 파일은 최대 10개까지 가능합니다.'),
+    ).toBeInTheDocument()
+    expect(screen.getByText('선택된 파일: new1.png')).toBeInTheDocument()
   })
 
   it('separates file add and image insert actions in the design editor', async () => {
