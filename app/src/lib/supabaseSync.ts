@@ -9,7 +9,7 @@ type EntryRow = {
   is_shared: boolean | null
   quality_snapshot: unknown
   attachments: unknown
-  history: unknown
+  history?: unknown
   created_at: string
   updated_at: string
 }
@@ -45,19 +45,34 @@ export async function pullCloudEntries(): Promise<EntryByDate | null> {
     return null
   }
 
-  const { data, error } = await supabase
+  const primaryResult = await supabase
     .from('entries')
     .select(
       'date, content, entry_mode, author_id, is_shared, quality_snapshot, attachments, history, created_at, updated_at',
     )
     .eq('user_id', userId)
 
-  if (error || !data) {
+  let rows = primaryResult.data as EntryRow[] | null
+  let error = primaryResult.error
+
+  if (error) {
+    // history 컬럼이 DB에 없어 에러가 발생한 경우 fallback 조회
+    const fallback = await supabase
+      .from('entries')
+      .select(
+        'date, content, entry_mode, author_id, is_shared, quality_snapshot, attachments, created_at, updated_at',
+      )
+      .eq('user_id', userId)
+    rows = fallback.data as EntryRow[] | null
+    error = fallback.error
+  }
+
+  if (error || !rows) {
     return null
   }
 
   const entries: EntryByDate = {}
-  ;(data as EntryRow[]).forEach((row) => {
+  rows.forEach((row) => {
     entries[row.date] = {
       content: row.content,
       createdAt: row.created_at,
@@ -82,18 +97,33 @@ export async function pullPublicFeedEntries(limit = 30): Promise<SharedFeedEntry
 
   const userId = await getOrCreateCloudUserId()
 
-  const { data, error } = await supabase
+  const primaryResult = await supabase
     .from('entries')
     .select('date, content, entry_mode, quality_snapshot, history, updated_at, user_id')
     .eq('is_shared', true)
     .order('updated_at', { ascending: false })
     .limit(limit)
 
-  if (error || !data) {
+  let rows = primaryResult.data as PublicEntryRow[] | null
+  let error = primaryResult.error
+
+  if (error) {
+    // DB에 history 컬럼이 아직 없는 경우 fallback 조회
+    const fallback = await supabase
+      .from('entries')
+      .select('date, content, entry_mode, quality_snapshot, updated_at, user_id')
+      .eq('is_shared', true)
+      .order('updated_at', { ascending: false })
+      .limit(limit)
+    rows = fallback.data as PublicEntryRow[] | null
+    error = fallback.error
+  }
+
+  if (error || !rows) {
     return []
   }
 
-  return (data as PublicEntryRow[])
+  return rows
     .filter((row) => row.user_id !== userId)
     .map((row) => ({
       dateKey: row.date,
@@ -134,7 +164,13 @@ export async function pushCloudEntries(entries: EntryByDate): Promise<void> {
     return
   }
 
-  await supabase.from('entries').upsert(rows, { onConflict: 'user_id,date' })
+  const { error } = await supabase.from('entries').upsert(rows, { onConflict: 'user_id,date' })
+
+  if (error) {
+    // history 컬럼이 DB에 없는 환경에서 에러 발생 시 history 제외 후 재시도
+    const fallbackRows = rows.map(({ history: _h, ...rest }) => rest)
+    await supabase.from('entries').upsert(fallbackRows, { onConflict: 'user_id,date' })
+  }
 }
 
 export async function pullCloudDiaryDesigns(): Promise<DiaryDesignByDate | null> {
